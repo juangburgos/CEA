@@ -12,8 +12,8 @@
 
 // to avoid C++ incompatibilities (after all, it is expecting C)
 extern "C" {               // make sure these are visible in directory lookup
-#include "f2c.h"           // our solution: copy them to /usr/include
-#include "clapack.h"
+#include "./lapack/f2c.h"           // our solution: copy them to /usr/include
+#include "./lapack/clapack.h"
 }
 
 #include "mydll.h"
