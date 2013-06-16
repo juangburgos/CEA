@@ -1,55 +1,85 @@
-clear all
-close all
-clc
+function mat2sql(matfile,dbfile)
 
-load('QU_Controller_Parameters.mat');
-database = 'controller_matrices.db';
+% Load *.mat file in workspace
+load(matfile);
+% List all variables in the workspace
+allmats = whos;
+% Define database file name
+database = dbfile;
+% Remove non-numerical variables
+k = 1;
+while 1
+    if ~strcmp(allmats(k).name,'double')
+        allmats(k) = [];
+    else
+        k = k+1;
+    end
+    if k <= max(size(allmats))
+        
+    end
+end        
 
 %% Fill in matrices
 
-table = 'testmat';
-mymat = double(Aj);
-
+% Open or create database file
 mksqlite('open', database);
 mksqlite('PRAGMA synchronous = OFF');
 
-nrows = size(mymat,1);
-ncols = size(mymat,2);
-
-cols  = '';
-for i = 1:1:ncols
-    if i < ncols
-        cols = strcat(cols,['col',int2str(i),' double, ']);
-    else
-        cols = strcat(cols,['col',int2str(i),' double']);
-    end
-end
-
-mksqlite(['create table ', table, ' (', cols, ')']);
-
+% Create info table
+mksqlite('create table info (matname text, numrows int, numcols int)');
 mksqlite('begin');
-
-cols  = '';
-for i = 1:1:ncols
-    if i < ncols
-        cols = strcat(cols,['col',int2str(i),', ']);
-    else
-        cols = strcat(cols,['col',int2str(i)]);
-    end
+for k = 1:1:max(size(allmats))
+    mksqlite(['insert into info (matname, numrows, numcols) VALUES (''', ...
+        allmats(k).name, ''', ', num2str(allmats(k).size(1)), ', ', ...
+        num2str(allmats(k).size(2)), ')']);
 end
-for j = 1:1:nrows
-    vals  = '';
+mksqlite('commit');
+
+% Fill in data
+for k = 1:1:max(size(allmats))
+    
+    table = allmats(k).name;
+    eval(['mymat = ',table,';']);
+
+    nrows = allmats(k).size(1);
+    ncols = allmats(k).size(2);
+
+    cols  = '';
     for i = 1:1:ncols
         if i < ncols
-            vals = strcat(vals,[sprintf('%25.25f',mymat(j,i)),', ']);
+            cols = strcat(cols,['col',int2str(i),' double, ']);
         else
-            vals = strcat(vals,[sprintf('%25.25f',mymat(j,i))]);
+            cols = strcat(cols,['col',int2str(i),' double']);
         end
     end
-    mksqlite(['insert into ', table, ' (', cols, ') VALUES (',vals, ')']);
-end
 
-mksqlite('commit');
+    mksqlite(['create table ', table, ' (', cols, ')']);
+
+    mksqlite('begin');
+
+    cols  = '';
+    for i = 1:1:ncols
+        if i < ncols
+            cols = strcat(cols,['col',int2str(i),', ']);
+        else
+            cols = strcat(cols,['col',int2str(i)]);
+        end
+    end
+    for j = 1:1:nrows
+        vals  = '';
+        for i = 1:1:ncols
+            if i < ncols
+                vals = strcat(vals,[sprintf('%25.25f',mymat(j,i)),', ']);
+            else
+                vals = strcat(vals,[sprintf('%25.25f',mymat(j,i))]);
+            end
+        end
+        mksqlite(['insert into ', table, ' (', cols, ') VALUES (',vals, ')']);
+    end
+
+    mksqlite('commit');
+    
+end
 
 mksqlite('close');
 
