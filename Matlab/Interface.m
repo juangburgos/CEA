@@ -12,6 +12,7 @@ clc
 dllname    = 'libCEA.dll';
 headername = 'mydll.h';
 funcname   = 'mypinv';
+funcsql    = 'sqltest';
 if ~libisloaded( 'MYDLL' ) 
     loadlibrary( dllname, headername, 'alias', 'MYDLL' );      
 end
@@ -59,6 +60,20 @@ disp(['LAPACK Time :',num2str(tlap),' s']);
 
 Ai_M
 Ai_L
+
+Aj = zeros(15,15);
+m     = size(Aj,1);
+n     = size(Aj,2);
+p_Aj      = libpointer('doublePtr',Aj);
+p_m       = libpointer('int64Ptr',m);
+p_n       = libpointer('int64Ptr',n);
+calllib( 'MYDLL', funcsql, p_m, p_n, p_Aj );
+Aj_L   = get(p_Aj,'Value');
+
+load('QU_Controller_Parameters.mat');
+Aj
+Aj_L
+difference = max(svd(Aj-Aj_L))
 
 %% Unload DLL
 

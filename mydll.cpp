@@ -4,16 +4,18 @@
  *  Created on: Apr 26, 2013
  *      Author: USER
  */
-
+#include "stdafx.h"
 #include <stdlib.h>
 #include <float.h>
-#include "stdafx.h"
+#include <string.h>
+
 #define EXPORTING_DLL
 
 // to avoid C++ incompatibilities (after all, it is expecting C)
 extern "C" {               // make sure these are visible in directory lookup
 #include "./lapack/f2c.h"           // our solution: copy them to /usr/include
 #include "./lapack/clapack.h"
+#include "./sqlite/sqlite3.h"
 }
 
 #include "mydll.h"
@@ -130,4 +132,47 @@ void monpen(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal
     free (vt);
     free (sfull);
     free (usfull);
+}
+
+extern "C" void __declspec(dllexport) __cdecl sqltest(integer *m, integer *n, doublereal *mymat)
+{
+	sqlite3_initialize();
+
+	sqlite3 *db;
+	sqlite3_stmt *res;
+
+	const char *errMSG;
+	const char *tail;
+
+	int error = sqlite3_open_v2( "test.db", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL );
+
+	if (error)
+	{
+		sqlite3_close(db);
+		system("pause");
+	}
+
+	char query[] = "SELECT * FROM Aj";
+
+	error = sqlite3_prepare_v2(db,&query[0],sizeof(query),&res,&tail);
+
+	if (error != SQLITE_OK)
+	{
+		sqlite3_close(db);
+		system("pause");
+	}
+
+	int i = 0;
+	while (sqlite3_step(res) == SQLITE_ROW)
+	{
+		for(int j = 0; j < *n; j++)
+	    {
+		    mymat[j*(*m)+i] = sqlite3_column_double(res,j);
+	    }
+		i = i + 1;
+	}
+
+	sqlite3_finalize(res);
+	sqlite3_close(db);
+
 }
