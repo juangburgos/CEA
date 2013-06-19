@@ -10,6 +10,9 @@ Ts = experiment.time(2)-experiment.time(1);
 ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
 radio=0.05;
 
+rutaini  = [0,0];
+ruta     = [rutaini;ruta];
+
 %% Init Simulation Parameters
 % Disturbances
 dist             = zeros(size(dsys.c,1),max(size(time)));
@@ -19,8 +22,8 @@ dist             = zeros(size(dsys.c,1),max(size(time)));
 % dist(4,:)        = feval(fitresultvelDISTURBANCES{2},time);
 
 % Noise
-namp = 0.04;
 noise      = zeros(size(dsys.c,1),max(size(time)));
+% namp       = 0.04;
 % noise      = namp.*rand(size(dsys.c,1),max(size(time)))-(namp/2);
 
 
@@ -35,7 +38,7 @@ y    = zeros(size(dsys.c,1),max(size(time))); % Observer Output
 xp   = zeros(size(dsys.a,1),max(size(time))); % Plant State
 yp   = zeros(size(dsys.c,1),max(size(time))); % Plant Output
 
-for t = 2:1:max(size(time))
+while norm([ym(1),ym(3)]-ruta(res+2,:)) < (radio/1)
     
     Bsch = dsys.b*[feval(fitresultROLL_k,refroll(t-1)) , 0; ...
                 0, feval(fitresultPITCH_k,refpitch(t-1))];
@@ -51,8 +54,7 @@ for t = 2:1:max(size(time))
     yp(:,t)   = yp(:,t) + noise(:,t);
     
     % ************** CONTROLLER *******************************
-    % Controller goes here yp(:,t)
-    [y(:,t),u(:,t)] = MatController(yp(:,t));
+    [y(:,t),u(:,t)] = MatController(yp(:,t),ruta,radio);
     
     clc
     disp(['Unconstrained MPC Progress: ',num2str(100*(t/max(size(time)))),' %']);
