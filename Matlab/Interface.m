@@ -13,6 +13,7 @@ dllname    = 'libCEA.dll';
 headername = 'mydll.h';
 funcname   = 'mypinv';
 funcsql    = 'sqltest';
+funcobs    = 'matobserver';
 if ~libisloaded( 'MYDLL' ) 
     loadlibrary( dllname, headername, 'alias', 'MYDLL' );      
 end
@@ -61,19 +62,42 @@ disp(['LAPACK Time :',num2str(tlap),' s']);
 Ai_M
 Ai_L
 
-Aj = zeros(15,15);
-m     = size(Aj,1);
-n     = size(Aj,2);
-p_Aj      = libpointer('doublePtr',Aj);
-p_m       = libpointer('int64Ptr',m);
-p_n       = libpointer('int64Ptr',n);
-calllib( 'MYDLL', funcsql, p_m, p_n, p_Aj );
-Aj_L   = get(p_Aj,'Value');
+%% Test DLL
+% C function:
+% sqltest(integer *m, integer *n, doublereal *mymat);
 
+% % Aj = zeros(15,15);
+% % m     = size(Aj,1);
+% % n     = size(Aj,2);
+% % p_Aj      = libpointer('doublePtr',Aj);
+% % p_m       = libpointer('int64Ptr',m);
+% % p_n       = libpointer('int64Ptr',n);
+% % calllib( 'MYDLL', funcsql, p_m, p_n, p_Aj );
+% % Aj_L   = get(p_Aj,'Value');
+% % 
 load('QU_Controller_Parameters.mat');
-Aj
-Aj_L
-difference = max(svd(Aj-Aj_L))
+% % Aj
+% % Aj_L
+% % difference = max(svd(Aj-Aj_L))
+
+%% Test DLL
+% C function:
+% matobserver(doublereal *u, doublereal *ym, doublereal *y);
+
+u  = zeros(size(Ap));
+ym = zeros(size(Aj));
+y  = zeros(size(rollparams));
+p_u       = libpointer('doublePtr',u);
+p_ym      = libpointer('doublePtr',ym);
+p_y       = libpointer('doublePtr',y);
+calllib( 'MYDLL', funcobs, p_u, p_ym, p_y );
+Ap_L           = get(p_u,'Value');
+Aj_L           = get(p_ym,'Value');
+rollparams_L   = get(p_y,'Value');
+
+diff1 = max(svd(Ap-Ap_L))
+diff2 = max(svd(Aj-Aj_L))
+diff3 = max(svd(rollparams-rollparams_L))
 
 %% Unload DLL
 

@@ -61,18 +61,16 @@ persistent disC;
 persistent disD;
 % Roll Scheduling Parameters
 persistent sRoll;
-% Roll Scheduling Parameters
+% Pitch Scheduling Parameters
 persistent sPitch;
 
 % If Observer Initialization
 if cStatus == 0
     % Initlialize Parameters and States
     load('QU_Controller_Parameters.mat');
-    x    = zeros(size(Ap,1),1);
     sysA = Ap;
     sysB = Bp;
     sysC = Cp;
-    xd   = zeros(size(Aj),1);
     disA = Aj;
     disB = Bj;
     disC = Cj;
@@ -81,6 +79,7 @@ if cStatus == 0
     sPitch  = pitchparams;
     % Initial Conditions
     x     = sysC\ym;
+    xd   = zeros(size(Aj),1);
     % 1) PREDICT
     unew1 = sinfit(u(1),sRoll);
     unew2 = sinfit(u(2),sPitch);

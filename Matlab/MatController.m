@@ -107,11 +107,9 @@ end
 if cStatus == 0
     % Initlialize Parameters and States
     load('QU_Controller_Parameters.mat');
-    x    = zeros(size(Ap,1),1);
     sysA = Ap;
     sysB = Bp;
     sysC = Cp;
-    xd   = zeros(size(Aj,1),1);
     disA = Aj;
     disB = Bj;
     disC = Cj;
@@ -130,7 +128,8 @@ if cStatus == 0
     lastT   = 0;
     % Initial Conditions
     x     = sysC\ym;
-    ukm1     = zeros(size(Bp,2),1);
+    xd    = zeros(size(Aj,1),1);
+    ukm1  = zeros(size(Bp,2),1);
     % <----------- START CONTROL ----------------------------------------
     % SUPERVISORY CONTROL
     % Reference Design
@@ -209,10 +208,8 @@ if cStatus == 0
     end
     ntheta = pTheta*Bsch;  % Warning, do not overwrite pTheta
     ngamma = pGamma*be;    % Warning, do not overwrite pGamma
-    test1 = ngamma'*pOmega*ngamma;
-    test2 = ntheta(1:2*N,1:2)*ukm1(1:2,1)-ref(1:2*N,1);
-    G   = 2*(pPsi+test1(1:2*N,1:2*N));
-    F   = 2*ngamma'*pOmega*(pPhi*x+pJota*xd+test2);
+    G   = 2*(pPsi+ngamma'*pOmega*ngamma);
+    F   = 2*ngamma'*pOmega*(pPhi*x+pJota*xd+ntheta*ukm1-ref);
     sol = -G\F;
     du  = sol(1:size(Bsch,2),1);
     ukm1   = ukm1 + du;
