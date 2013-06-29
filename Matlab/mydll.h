@@ -19,20 +19,25 @@ extern "C" void __declspec(dllimport) __cdecl matobserver(doublereal *u, doubler
 #endif
 
 void monpen(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainvt);
+void pinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv);
 
 // Matrix Structure
 typedef struct mat{
 
-    int m;
-    int n;
+    integer m;
+    integer n;
     doublereal * mat;
 
 }mat;
 
 // Observer Functions
-mat zeros( int m, int n );
+void zeros( mat *matrix );
+void multmat( mat *A, mat *B, mat*C );
 
 // SQL Functions
 void readmatsql( sqlite3 *db, char *matname, mat *matrix );
+
+// Fitting Function
+doublereal sinfit( doublereal u, mat *fit_params );
 
 #endif /* MYDLL_H_ */

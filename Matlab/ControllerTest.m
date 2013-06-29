@@ -9,7 +9,8 @@ load('model.mat');
 load('fitresultDIST.mat');
 load('fitresultvelDISTURBANCES.mat');
 Ts = experiment.time(2)-experiment.time(1);
-ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
+% ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
+ruta=[12 0;12 5;7 -5;-1 4;-1 4;-2 0];
 radio=0.05;
 
 rutaini  = [0,0];

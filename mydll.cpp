@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <float.h>
 #include <string.h>
+#include <math.h>
 
 #define EXPORTING_DLL
 
@@ -20,6 +21,8 @@ extern "C" {               // make sure these are visible in directory lookup
 }
 
 #include "mydll.h"
+
+//doublereal machEps = 1.0;
 
 extern "C" void __declspec(dllexport) __cdecl mypinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv)
 {
@@ -67,12 +70,6 @@ void monpen(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal
     // define tolerance
 //    if (*mytol <= 0)
 //    {
-//    	// linear search for machine tolerance (**eliminate this when possible**)
-//		doublereal machEps = 1.0;
-//		do {
-//		   machEps /= 2.0;
-//		}
-//		while ((doublereal)(1.0 + (machEps/2.0)) != 1.0);
 //		// tolerance
 //		tol = (*m) * machEps;
 //    }
@@ -180,6 +177,9 @@ extern "C" void __declspec(dllexport) __cdecl sqltest(integer *m, integer *n, do
 
 extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doublereal *ym, doublereal *y)
 {
+	// Debugging Log
+//	static FILE * pFile;
+//	static int myCount = 0;
 	// % Controller Status Variable (Init = 0, Run = 1)
 	static int cStatus = 0;
 	// % Internal System Model State
@@ -205,9 +205,38 @@ extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doubler
 	// % Pitch Scheduling Parameters
 	static mat sPitch;
 
+	// Input Input in Matrix Form
+	static mat m_u;
+	// Measured Output in Matrix Form
+	static mat m_ym;
+	// Estimated Output in Matrix Form
+	static mat m_y;
+
+	// Temporal Matrices
+	static mat sysCinv;
+	static mat Sched;
+	static mat Bsch;
+	static mat stEq1;
+	static mat stEq2;
+	static mat stEq3;
+	static mat oErr;
+	static mat dtEq1;
+	static mat suEq1;
+	static mat duEq1;
+
+	// Calculate Machine Epsilon
+	// linear search for machine tolerance (**eliminate this when possible**)
+//	do {
+//	   machEps /= 2.0;
+//	}
+//	while ((doublereal)(1.0 + (machEps/2.0)) != 1.0);
+
 	// % If Observer Initialization
 	if (cStatus == 0)
 	{
+//		pFile = fopen ("log.txt","w");
+//		fprintf (pFile, "INIT %d \n",0);
+//		fflush (pFile);
 		// % Initlialize Parameters and States
 		sqlite3_initialize();
 		sqlite3 *db;
@@ -218,7 +247,6 @@ extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doubler
 			sqlite3_close(db);
 			system("pause");
 		}
-
 		readmatsql(db, "Ap", &sysA);
 		readmatsql(db, "Bp", &sysB);
 		readmatsql(db, "Cp", &sysC);
@@ -228,44 +256,196 @@ extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doubler
 		readmatsql(db, "Dj", &disD);
 		readmatsql(db, "rollparams", &sRoll);
 		readmatsql(db, "pitchparams", &sPitch);
-
-		int i;
-		for(i = 0; i < sysA.m*sysA.n; i++)
-		{
-			u[i]  = sysA.mat[i];
-		}
-		for(i = 0; i < disA.m*disA.n; i++)
-		{
-			ym[i]  = disA.mat[i];
-		}
-		for(i = 0; i < sRoll.m*sRoll.n; i++)
-		{
-			y[i]  = sRoll.mat[i];
-		}
-
-		// % Initialization Finished
-		cStatus = 1;
 		// Close Database
 		sqlite3_close(db);
+//		fprintf (pFile, "Matrices loaded successfully %d \n",1);
+//		fflush (pFile);
+		// Init Inputs, States and Outputs in Matrix Form
+		m_u.m    = sysB.n;
+		m_u.n    = 1;
+		//m_u.mat  = (doublereal*) calloc(m_u.m*m_u.n, sizeof(doublereal));
+		m_ym.m   = sysC.m;
+		m_ym.n   = 1;
+		//m_ym.mat = (doublereal*) calloc(m_ym.m*m_ym.n, sizeof(doublereal));
+		m_y.m    = sysC.m;
+		m_y.n    = 1;
+		//m_y.mat  = (doublereal*) calloc(m_y.m*m_y.n, sizeof(doublereal));
+		x.m      = sysA.m;
+		x.n      = 1;
+		x.mat    = (doublereal*) calloc(x.m*x.n, sizeof(doublereal));
+		xd.m     = disA.m;
+		xd.n     = 1;
+		xd.mat   = (doublereal*) calloc(xd.m*xd.n, sizeof(doublereal));
+		// Init Temporal Matrices
+		sysCinv.m   = sysC.n;
+		sysCinv.n   = sysC.m;
+		sysCinv.mat = (doublereal*) calloc(sysCinv.m*sysCinv.n, sizeof(doublereal));
+		Bsch.m      = sysB.m;
+		Bsch.n      = sysB.n;
+		Bsch.mat    = (doublereal*) calloc(Bsch.m*Bsch.n, sizeof(doublereal));
+		Sched.m     = sysB.n;
+		Sched.n     = sysB.n;
+		Sched.mat   = (doublereal*) calloc(Sched.m*Sched.n, sizeof(doublereal));
+		stEq1.m     = sysA.m;
+		stEq1.n     = x.n;
+		stEq1.mat   = (doublereal*) calloc(stEq1.m*stEq1.n, sizeof(doublereal));
+		stEq2.m     = disC.m;
+		stEq2.n     = xd.n;
+		stEq2.mat   = (doublereal*) calloc(stEq2.m*stEq2.n, sizeof(doublereal));
+		stEq3.m     = Bsch.m;
+		stEq3.n     = m_u.n;
+		stEq3.mat   = (doublereal*) calloc(stEq3.m*stEq3.n, sizeof(doublereal));
+		oErr.m      = m_y.m;
+		oErr.n      = m_y.n;
+		oErr.mat    = (doublereal*) calloc(oErr.m*oErr.n, sizeof(doublereal));
+		dtEq1.m     = disA.m;
+		dtEq1.n     = xd.n;
+		dtEq1.mat   = (doublereal*) calloc(dtEq1.m*dtEq1.n, sizeof(doublereal));
+		suEq1.m     = disD.m;
+		suEq1.n     = oErr.n;
+		suEq1.mat   = (doublereal*) calloc(suEq1.m*suEq1.n, sizeof(doublereal));
+		duEq1.m     = disB.m;
+		duEq1.n     = oErr.n;
+		duEq1.mat   = (doublereal*) calloc(duEq1.m*duEq1.n, sizeof(doublereal));
+//		fprintf (pFile, "Matrices inited successfully %d \n",2);
+//		fflush (pFile);
+		// 0) Input/Output Pointers
+		m_u.mat  = u;
+		m_ym.mat = ym;
+		m_y.mat  = y;
+//		fprintf (pFile, "Step 0 successfully %d \n",4);
+//		fflush (pFile);
+		// % Initial Conditions
+		// Initial Plant States
+		//   Calculate C inverse
+		// doublereal mytol = -1.0;
+		doublereal mytol = 0.0;
+		pinv(&(sysC.m), &(sysC.n), sysC.mat, &mytol, sysCinv.mat);
+		//   Multiply x = Cinv * ym
+		multmat(&sysCinv, &m_ym, &x);
+		//   Init xd = zeros
+		zeros(&xd);
+//		fprintf (pFile, "Initial Conditions successfully %d \n",3);
+//		fflush (pFile);
+		// % 1) PREDICT
+		// % Scheduled B matrix
+		zeros(&Sched);
+		Sched.mat[0] = sinfit(m_u.mat[0], &sRoll);
+		Sched.mat[3] = sinfit(m_u.mat[1], &sPitch);
+		multmat(&sysB, &Sched, &Bsch);
+		// % Nominal Model State Equation
+		multmat(&sysA, &x, &stEq1);
+		multmat(&disC, &xd, &stEq2);
+		multmat(&Bsch, &m_u, &stEq3);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = stEq1.mat[i] + stEq2.mat[i] + stEq3.mat[i];
+		}
+		// % Disturbance Model State Equation
+		multmat(&disA, &xd, &dtEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = dtEq1.mat[i];
+		}
+//		fprintf (pFile, "Step 1 successfully %d \n",5);
+//		fflush (pFile);
+		// % Output Equation
+		multmat(&sysC, &x, &m_y);
+		// % 2) CORRECT
+		// Observer Error
+		for(int i = 0; i < oErr.m; i++)
+		{
+			oErr.mat[i] = m_ym.mat[i] - m_y.mat[i];
+		}
+		// % Update Nominal Model States
+		multmat(&disD, &oErr, &suEq1);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = x.mat[i] + suEq1.mat[i];
+		}
+		// % Update Disturbance Model States
+		multmat(&disB, &oErr, &duEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = xd.mat[i] + duEq1.mat[i];
+		}
+		// % Update Output
+		multmat(&sysC, &x, &m_y);
+//		fprintf (pFile, "Step 2 successfully %d \n",6);
+//		fflush (pFile);
+		// % Initialization Finished
+		cStatus = 1;
+
 	}
 	else
 	{
-
+//		myCount++;
+//		fprintf (pFile, "RUN %d \n",0);
+//		fflush (pFile);
+		// 0) Input/Output Pointers
+		m_u.mat  = u;
+		m_ym.mat = ym;
+		m_y.mat  = y;
+		// % 1) PREDICT
+		// % Scheduled B matrix
+		zeros(&Sched);
+		Sched.mat[0] = sinfit(m_u.mat[0], &sRoll);
+		Sched.mat[3] = sinfit(m_u.mat[1], &sPitch);
+		multmat(&sysB, &Sched, &Bsch);
+		// % Nominal Model State Equation
+		multmat(&sysA, &x, &stEq1);
+		multmat(&disC, &xd, &stEq2);
+		multmat(&Bsch, &m_u, &stEq3);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = stEq1.mat[i] + stEq2.mat[i] + stEq3.mat[i];
+		}
+		// % Disturbance Model State Equation
+		multmat(&disA, &xd, &dtEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = dtEq1.mat[i];
+		}
+		// % Output Equation
+		multmat(&sysC, &x, &m_y);
+//		fprintf (pFile, "Step 1 successfully %6.6f \n",m_y.mat[1]);
+//		fflush (pFile);
+		// % 2) CORRECT
+		// Observer Error
+		for(int i = 0; i < oErr.m; i++)
+		{
+			oErr.mat[i] = m_ym.mat[i] - m_y.mat[i];
+		}
+		// % Update Nominal Model States
+		multmat(&disD, &oErr, &suEq1);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = x.mat[i] + suEq1.mat[i];
+		}
+		// % Update Disturbance Model States
+		multmat(&disB, &oErr, &duEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = xd.mat[i] + duEq1.mat[i];
+		}
+		// % Update Output
+		multmat(&sysC, &x, &m_y);
+//		fprintf (pFile, "Step 2 successfully %6.6f \n",m_y.mat[1]);
+//		fprintf (pFile, "Finished Round %d \n",myCount);
+//		fflush (pFile);
 	}
 
 }
 
-void zeros( int m, int n, mat *matrix )
+
+void zeros( mat *matrix )
 {
-	matrix->mat = (doublereal*) calloc(m*n, sizeof(doublereal));
-	for (int i = 0; i < (m)*(n); i++)
+	for (int i = 0; i < (matrix->m)*(matrix->n); i++)
 	    {
 			matrix->mat[i] = 0.0;
 	    }
-	matrix->m = m;
-	matrix->n = n;
-
 }
+
 
 void readmatsql( sqlite3 *db, char *matname, mat *matrix )
 {
@@ -318,4 +498,68 @@ void readmatsql( sqlite3 *db, char *matname, mat *matrix )
 	}
 	sqlite3_finalize(res2);
 
+}
+
+
+void pinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv)
+{
+	  // moore–penrose pseudoinverse
+	  if (*n > *m)
+	  {
+		  // allocate at matrix
+		  doublereal *at = (doublereal*) calloc((*n)*(*m), sizeof(doublereal));
+		  // transpose of matrix a
+		  for (int i = 0; i < *m; i++) //stored in column major
+		  {
+			  for(int j = 0; j < *n; j++)
+			  {
+				  at[(*n)*(i)+j] = a[j*(*m)+i];
+			  }
+		  }
+		  // apply same algorithm to a^t and transpose the result
+		  monpen(n,m,at,mytol,ainv);
+		  // free at matrix
+		  free (at);
+	  }
+	  else
+	  {
+		  // allocate ainvt matrix
+		  doublereal *ainvt = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
+		  // apply normal algorithm to a
+		  monpen(m,n,a,mytol,ainvt);
+		  // transpose of matrix ainvt
+		  for (int i = 0; i < *m; i++) //stored in column major
+		  {
+			  for(int j = 0; j < *n; j++)
+			  {
+				  ainv[(*n)*(i)+j] = ainvt[j*(*m)+i];
+			  }
+		  }
+		  // free ainvt matrix
+		  free (ainvt);
+	  }
+}
+
+void multmat( mat *A, mat *B, mat *C )
+{
+	char transa      = 'N';
+    char transb      = 'N';
+    doublereal alpha = 1.0;
+    doublereal beta  = 0.0;
+
+    dgemm_(&transa, &transb,
+	  	   &A->m, &B->n, &A->n, &alpha, A->mat, &A->m,
+		   B->mat, &A->n, &beta, C->mat, &A->m);
+}
+
+doublereal sinfit( doublereal u, mat *fit_params )
+{
+	int i = 0;
+	doublereal out = 0.0;
+	while( i < max(fit_params->m,fit_params->n) )
+	{
+		out = out + (fit_params->mat[i])*sin( fit_params->mat[i+1]*u + fit_params->mat[i+2] );
+		i = i + 3;
+	}
+	return out;
 }

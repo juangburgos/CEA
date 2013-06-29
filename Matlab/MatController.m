@@ -147,6 +147,10 @@ if cStatus == 0
             py = -py;
         end
         px = (dx/dy)*py;
+    elseif abs(dy) == abs(0.8*(vymax/vxmax)*dx)
+            t  = [0,Ts];
+            px = [0,0];
+            py = px;
     else
         [t,px] = thirdord(dx,vxmax,axmax,jxmax,Ts);
         if dx < 0
@@ -250,6 +254,10 @@ elseif cStatus == 1
                     py = -py;
                 end
                 px = (dx/dy)*py;
+            elseif abs(dy) == abs(0.8*(vymax/vxmax)*dx)
+                t  = [0,Ts];
+                px = [0,0];
+                py = px;
             else
                 [t,px] = thirdord(dx,vxmax,axmax,jxmax,Ts);
                 if dx < 0
@@ -336,6 +344,7 @@ end
 %% Third Order Setpoint Designer Function
 function [tx,xp]=thirdord(p,v,a,j,Ts)
 
+try
 % PART 1
 p=abs(p);
 v=abs(v);
@@ -404,6 +413,8 @@ tt=   [0 1 1 2 2 3 3 4 ]*t(1) ...
     + [0 0 1 1 1 1 2 2 ]*t(2) ...
     + [0 0 0 0 1 1 1 1 ]*t(3) ;
 
+% keyboard;
+
 ttest=[tt 1.5*tt(8)];
 len = round(1.2*tt(8)/Ts + 1); % length of profiles
 xj = zeros(len,1);
@@ -427,4 +438,8 @@ for time=Ts:Ts:(1.2*tt(8)+Ts/2)
   xa(k+1) = xa(k) + xj(k)*Ts;
   xv(k+1) = xv(k) + xa(k)*Ts;
   xp(k+1) = xp(k) + xv(k)*Ts;
+end
+
+catch err
+    keyboard;
 end
