@@ -9,8 +9,8 @@ load('model.mat');
 load('fitresultDIST.mat');
 load('fitresultvelDISTURBANCES.mat');
 Ts = experiment.time(2)-experiment.time(1);
-% ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
-ruta=[12 0;12 5;7 -5;-1 4;-1 4;-2 0];
+ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
+% ruta=[12 0;12 5;7 -5;-1 4;-1 4;-2 0];
 radio=0.05;
 
 rutaini  = [0,0];
@@ -62,8 +62,8 @@ while 1
     % Measurement Noise
     yp(:,t)   = yp(:,t) + noise(:,t);
     
-    % ************** CONTROLLER *******************************
-    [y(:,t),u(:,t)] = MatController(yp(:,t),ruta,radio);
+    % ************** CONTROLLER ******************************
+    [y(:,t),u(:,t)] = MatController(yp(:,t),ruta(:,1),ruta(:,2),size(ruta,1),radio);
     
     clc
     disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
@@ -91,6 +91,7 @@ subplot(6,1,1),plot(time,y(1,:),'b-');
 hold on;
 subplot(6,1,1),plot(time,yp(1,:),'r--');
 axis([time(1) time(end) 0.9*min(yp(1,:)) 1.1*max(yp(1,:))]);
+legend('Observer Output','Plant Output');
 
 subplot(6,1,2),plot(time,y(2,:),'b-');
 hold on;
@@ -114,6 +115,8 @@ subplot(6,1,6),plot(time,u(2,:),'b-');
 axis([time(1) time(end) -1 1]);
 
 figure();
+plot(ruta(:,1),ruta(:,2),'r-');
+hold on;
 plot(yp(1,:),yp(3,:),'b-');
 
 

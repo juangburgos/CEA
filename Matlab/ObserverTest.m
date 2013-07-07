@@ -32,6 +32,7 @@ y  = zeros(size(dsys.c,1),max(size(time)));   % Output
 %     opentheloop = max(size(time));          % Never Open
 % end
 
+tic
 for t = 2:1:max(size(time))
     
     % Original Input
@@ -44,6 +45,7 @@ for t = 2:1:max(size(time))
     disp(['Progress: ',num2str(100*(t/max(size(time)))),' %']);
     
 end
+mat_t = toc/(Ts*(t-1));
 
 % tline = [experiment.time(opentheloop),experiment.time(opentheloop)];
 
@@ -96,6 +98,7 @@ y_c  = zeros(size(dsys.c,1),max(size(time)));   % Output
 %     opentheloop = max(size(time));          % Never Open
 % end
 
+tic
 for t = 2:1:max(size(time))
     
     % Original Input
@@ -113,6 +116,7 @@ for t = 2:1:max(size(time))
     disp(['Progress: ',num2str(100*(t/max(size(time)))),' %']);
     
 end
+cprg_t = toc/(Ts*(t-1));
 
 % Unload DLL
 unloadlibrary('MYDLL');
@@ -145,3 +149,6 @@ subplot(4,1,4),plot(experiment.time,y_c(4,:),'r--');
 % subplot(4,1,4),plot(tline,[min(ym(4,:)),max(ym(4,:))],'g-','Linewidth',2);
 
 clc
+
+disp(['Matlab Program: ',num2str(mat_t)]);
+disp(['C Program: ',num2str(cprg_t)]);
