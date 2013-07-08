@@ -12,10 +12,12 @@
 extern "C" void __declspec(dllexport) __cdecl mypinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv);
 extern "C" void __declspec(dllexport) __cdecl sqltest(integer *m, integer *n, doublereal *mymat);
 extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doublereal *ym, doublereal *y);
+extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio);
 #else
 extern "C" void __declspec(dllimport) __cdecl mypinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv);
 extern "C" void __declspec(dllimport) __cdecl sqltest(integer *m, integer *n, doublereal *mymat);
 extern "C" void __declspec(dllimport) __cdecl matobserver(doublereal *u, doublereal *ym, doublereal *y);
+extern "C" void __declspec(dllimport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio);
 #endif
 
 void monpen(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainvt);
@@ -39,5 +41,11 @@ void readmatsql( sqlite3 *db, char *matname, mat *matrix );
 
 // Fitting Function
 doublereal sinfit( doublereal u, mat *fit_params );
+
+// Third Order Setpoint Function (allocates memory for tx and xp !!! must be free before updating)
+void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublereal Ts, mat *tx, mat *xp );
+
+// Linear Interpolation Function
+void interpola ( mat *tr_x, mat *pr_x, mat *my_tr, mat *my_pr );
 
 #endif /* MYDLL_H_ */

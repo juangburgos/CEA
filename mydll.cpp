@@ -24,8 +24,10 @@ extern "C" {               // make sure these are visible in directory lookup
 
 //doublereal machEps = 1.0;
 doublereal Ts = 0.06;
-doublereal N  = 50;
+int N  = 50;
 doublereal mytol = 0.0;
+
+FILE * pFile;
 
 extern "C" void __declspec(dllexport) __cdecl mypinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv)
 {
@@ -532,10 +534,11 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	static mat fEq2;
 	static mat fEq3;
 	static mat fEq4;
-	static mat fEq5;
 	static mat F;
 	static mat sol;
 	static mat du;
+
+	static int count = 0;
 
 	// Calculate Machine Epsilon
 	// linear search for machine tolerance (**eliminate this when possible**)
@@ -547,9 +550,9 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	// % If Observer Initialization
 	if (cStatus == 0)
 	{
-//		pFile = fopen ("log.txt","w");
-//		fprintf (pFile, "INIT %d \n",0);
-//		fflush (pFile);
+		pFile = fopen ("log.txt","w");
+		fprintf (pFile, "INIT %d \n",0);
+		fflush (pFile);
 		// % Initlialize Parameters and States
 		sqlite3_initialize();
 		sqlite3 *db;
@@ -582,8 +585,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		lastT = 0.0;
 		// Close Database
 		sqlite3_close(db);
-//		fprintf (pFile, "Matrices loaded successfully %d \n",1);
-//		fflush (pFile);
+		fprintf (pFile, "Matrices loaded successfully %d \n",1);
+		fflush (pFile);
 		// Init Inputs, States, Outputs and wayPoints in Matrix Form
 		ukm1.m    = sysB.n;
 		ukm1.n    = 1;
@@ -658,8 +661,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		ngamma.m    = pGamma.m;
 		ngamma.n    = be.n;
 		ngamma.mat  = (doublereal*) calloc(ngamma.m*ngamma.n, sizeof(doublereal));
-		ngammat.n   = ngamma.m;
 		ngammat.m   = ngamma.n;
+		ngammat.n   = ngamma.m;
 		ngammat.mat = (doublereal*) calloc(ngammat.m*ngammat.n, sizeof(doublereal));
 		gEq1.m      = pOmega.m;
 		gEq1.n      = ngamma.n;
@@ -691,15 +694,18 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		du.m        = ukm1.m;
 		du.n        = ukm1.n;
 		du.mat      = (doublereal*) calloc(du.m*du.n, sizeof(doublereal));
+		F.m         = ngammat.m;
+		F.n         = fEq4.n;
+		F.mat      = (doublereal*) calloc(F.m*F.n, sizeof(doublereal));
 
-//		fprintf (pFile, "Matrices inited successfully %d \n",2);
-//		fflush (pFile);
+		fprintf (pFile, "Matrices inited successfully %d \n",2);
+		fflush (pFile);
 		// 0) Input/Output Pointers
 		zeros(&ukm1);
 		m_ym.mat = ym;
 		m_y.mat  = y;
-//		fprintf (pFile, "Step 0 successfully %d \n",4);
-//		fflush (pFile);
+		fprintf (pFile, "Step 0 successfully %d \n",3);
+		fflush (pFile);
 		// % Initial Conditions
 		// Initial Plant States
 		// Calculate C inverse
@@ -709,8 +715,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		multmat(&sysCinv, &m_ym, &x);
 		//   Init xd = zeros
 		zeros(&xd);
-//		fprintf (pFile, "Initial Conditions successfully %d \n",3);
-//		fflush (pFile);
+		fprintf (pFile, "Initial Conditions successfully %d \n",4);
+		fflush (pFile);
 
 		// % <----------- START CONTROL ----------------------------------------
 		// % SUPERVISORY CONTROL
@@ -723,22 +729,26 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		doublereal vxmax = 3.1;
 		doublereal axmax = 1.0;
 		doublereal jxmax = 12.0;
+		fprintf (pFile, "Supervisory dx = %3.3f, dy = %3.3f \n",dx,dy);
+		fflush (pFile);
 		if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
 		{
 			thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+			fprintf (pFile, "Supervisory after Thirdord dy = %3.3f \n",dy);
+			fflush (pFile);
 			if ( dy < 0 )
 			{
 				for (int i = 0; i < pr_y.m; i++)
 				{
 					pr_y.mat[i] = -pr_y.mat[i];
 				}
-				pr_x.m   = pr_y.m;
-				pr_x.n   = pr_y.n;
-				pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
-				for (int i = 0; i < pr_y.m; i++)
-				{
-					pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
-				}
+			}
+			pr_x.m   = pr_y.m;
+			pr_x.n   = pr_y.n;
+			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+			for (int i = 0; i < pr_y.m; i++)
+			{
+				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 			}
 		}
 		else if ( dx == 0 && dy == 0 )
@@ -762,20 +772,25 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		else
 		{
 			thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
-			if ( dy < 0 )
+			fprintf (pFile, "Supervisory after Thirdord dx = %3.3f \n",dx);
+			fprintf (pFile, "Xref = (%d x %d) \n",pr_x.m,pr_x.n);
+			fflush (pFile);
+			if ( dx < 0 )
 			{
 				for (int i = 0; i < pr_x.m; i++)
 				{
 					pr_x.mat[i] = -pr_x.mat[i];
 				}
-				pr_y.m   = pr_x.m;
-				pr_y.n   = pr_x.n;
-				pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
-				for (int i = 0; i < pr_y.m; i++)
-				{
-					pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
-				}
 			}
+			pr_y.m   = pr_x.m;
+			pr_y.n   = pr_x.n;
+			pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+			for (int i = 0; i < pr_y.m; i++)
+			{
+				pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+				fprintf (pFile, "%3.3f, ",pr_x.mat[i]);
+			}
+			fflush (pFile);
 		}
 		for (int i = 0; i < tr.m; i++)
 		{
@@ -783,6 +798,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 			pr_x.mat[i] = pr_x.mat[i] + m_wayPointX.mat[res];
 			pr_y.mat[i] = pr_y.mat[i] + m_wayPointY.mat[res];
 		}
+		fprintf (pFile, "\n Supervisor Successfull %d \n",4);
+		fflush (pFile);
 
 		// % 1) PREDICT
 		// % Scheduled B matrix
@@ -829,6 +846,9 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		// % Update Output
 		multmat(&sysC, &x, &m_y);
 
+		fprintf (pFile, "Observer Successfull %d \n",5);
+		fflush (pFile);
+
 		// % STATE FEEDBACK
 		// % 1) Compute Reference Vector
 		for ( int i = 0; i < N; i++ )
@@ -842,6 +862,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 			ref.mat[2*i]     = rtmpx.mat[i];
 			ref.mat[(2*i)+1] = rtmpy.mat[i];
 		}
+		fprintf (pFile, "Reference Vector Successfull %d \n",6);
+		fflush (pFile);
 		// % 2) Compute Unconstrained MPC Input
 		int filas    = Bsch.m;
 		int columnas = Bsch.n;
@@ -851,7 +873,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 			{
 				for ( int k = 0; k < filas; k++ )
 				{
-					be.mat[i*(N*filas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+//					be.mat[i*(N*filas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+					be.mat[i*(N*filas*columnas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
 				}
 			}
 		}
@@ -865,27 +888,49 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 			    ngammat.mat[(ngamma.n)*(i)+j] = ngamma.mat[j*(ngamma.m)+i];
 		    }
 	    }
+	    fprintf (pFile, "be matrix and ngamma_t successfull %d \n",7);
+		fflush (pFile);
 	    // G matrix
 	    multmat(&pOmega, &ngamma, &gEq1);
+	    fflush (pFile);
+	    fprintf (pFile, "Aqui -1 %d \n",7);
 	    multmat(&ngammat, &gEq1, &gEq2);
+	    fflush (pFile);
+	    fprintf (pFile, "Aqui 0 %d \n",7);
 	    for (int i = 0; i < G.m*G.n; i++ )
 	    {
 			G.mat[i] = 2*(pPsi.mat[i] + gEq2.mat[i]);
 	    }
 	    // F matrix
+	    fprintf (pFile, "Aqui 1 %d \n",7);
+	    fflush (pFile);
 	    multmat(&ntheta, &ukm1, &fEq1);
+	    fprintf (pFile, "Aqui 2 %d \n",7);
+	    fflush (pFile);
 	    multmat(&pJota, &xd, &fEq2);
+	    fprintf (pFile, "Aqui 3 %d \n",7);
+	    fflush (pFile);
 	    multmat(&pPhi, &x, &fEq3);
+	    fprintf (pFile, "Aqui 4 %d \n",7);
+	    fflush (pFile);
 	    for (int i = 0; i < fEq1.m*fEq1.n; i++ )
 	    {
 	    	fEq1.mat[i] = fEq1.mat[i] + fEq2.mat[i] + fEq3.mat[i] - ref.mat[i];
 	    }
+	    fprintf (pFile, "Aqui 5 %d \n",7);
+	    fflush (pFile);
 	    multmat(&pOmega, &fEq1, &fEq4);
+	    fprintf (pFile, "Aqui 6 %d \n",7);
+	    fflush (pFile);
 	    multmat(&ngammat, &fEq4, &F);
+	    fprintf (pFile, "Aqui 7 %d \n",7);
+	    fflush (pFile);
 	    for ( int i = 0; i < F.m*F.n; i++ )
 	    {
 	    	F.mat[i] = 2*F.mat[i];
 	    }
+	    fprintf (pFile, "G and F Successfull %d \n",8);
+		fflush (pFile);
 	    // Solution
 	    pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
 	    multmat(&Ginv, &F, &sol);
@@ -908,17 +953,17 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		// Next internal time
 	    iTime = iTime + Ts;
 
-//		fprintf (pFile, "Step 2 successfully %d \n",6);
-//		fflush (pFile);
+		fprintf (pFile, "Control Solution Successfull %d \n",9);
+		fflush (pFile);
 		// % Initialization Finished
 		cStatus = 1;
 
 	}
 	else
 	{
-//		myCount++;
-//		fprintf (pFile, "RUN %d \n",0);
-//		fflush (pFile);
+		count++;
+		fprintf (pFile, "One more count %d \n",count);
+		fflush (pFile);
 
 		// 0) Input/Output Pointers
 		m_ym.mat = ym;
@@ -926,8 +971,10 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 
 		// SUPERVISORY CONTROL
 		// Check weather next point has been reached
-		if ( sqrt( pow((m_ym.mat[0]-wayPointX[res+1]), 2) + pow((m_ym.mat[2]-wayPointY[res+1]), 2) ) < radio )
+		if ( sqrt( pow((m_ym.mat[0]-wayPointX[res+1]), 2) + pow((m_ym.mat[2]-wayPointY[res+1]), 2) ) < *radio )
 		{
+			fprintf (pFile, "A Point has been achieved %d \n",count);
+			fflush (pFile);
 			if ( (res+1) < numWaypoints )
 			{
 				// Free previous reference
@@ -955,13 +1002,13 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 						{
 							pr_y.mat[i] = -pr_y.mat[i];
 						}
-						pr_x.m   = pr_y.m;
-						pr_x.n   = pr_y.n;
-						pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
-						for (int i = 0; i < pr_y.m; i++)
-						{
-							pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
-						}
+					}
+					pr_x.m   = pr_y.m;
+					pr_x.n   = pr_y.n;
+					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+					for (int i = 0; i < pr_y.m; i++)
+					{
+						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 					}
 				}
 				else if ( dx == 0 && dy == 0 )
@@ -985,19 +1032,19 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 				else
 				{
 					thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
-					if ( dy < 0 )
+					if ( dx < 0 )
 					{
 						for (int i = 0; i < pr_x.m; i++)
 						{
 							pr_x.mat[i] = -pr_x.mat[i];
 						}
-						pr_y.m   = pr_x.m;
-						pr_y.n   = pr_x.n;
-						pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
-						for (int i = 0; i < pr_y.m; i++)
-						{
-							pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
-						}
+					}
+					pr_y.m   = pr_x.m;
+					pr_y.n   = pr_x.n;
+					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+					for (int i = 0; i < pr_y.m; i++)
+					{
+						pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
 					}
 				}
 				for (int i = 0; i < tr.m; i++)
@@ -1031,8 +1078,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		}
 		// % Output Equation
 		multmat(&sysC, &x, &m_y);
-//		fprintf (pFile, "Step 1 successfully %6.6f \n",m_y.mat[1]);
-//		fflush (pFile);
+
 		// % 2) CORRECT
 		// Observer Error
 		for(int i = 0; i < oErr.m; i++)
@@ -1053,6 +1099,10 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		}
 		// % Update Output
 		multmat(&sysC, &x, &m_y);
+
+		fprintf (pFile, "XOutput = %6.6f, XRef = %6.6f. \n",m_ym.mat[0], wayPointX[res+1]);
+		fprintf (pFile, "YOutput = %6.6f, YRef = %6.6f. \n",m_ym.mat[2], wayPointY[res+1]);
+		fflush (pFile);
 
 		// % STATE FEEDBACK
 		// % 1) Compute Reference Vector
@@ -1076,7 +1126,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 			{
 				for ( int k = 0; k < filas; k++ )
 				{
-					be.mat[i*(N*filas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+//					be.mat[i*(N*filas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+					be.mat[i*(N*filas*columnas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
 				}
 			}
 		}
@@ -1133,9 +1184,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		// Next internal time
 		iTime = iTime + Ts;
 
-//		fprintf (pFile, "Step 2 successfully %6.6f \n",m_y.mat[1]);
-//		fprintf (pFile, "Finished Round %d \n",myCount);
-//		fflush (pFile);
+		fprintf (pFile, "Inputs Computed u1 = %3.3f, u2 = %3.3f \n",u[0],u[1]);
+		fflush (pFile);
 	}
 
 }
@@ -1274,22 +1324,24 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	mat t;
 	t.m   = 1;
 	t.n   = 3;
-//	t.mat = (doublereal*) calloc((t.m)*(t.n), sizeof(doublereal));
-	t.mat = {0, 0, 0};
+	t.mat = (doublereal*) calloc((t.m)*(t.n), sizeof(doublereal));
+	zeros(&t);
 	mat tconst;
 	tconst.m   = 3;
 	tconst.n   = 8;
 //	tconst.mat = (doublereal*) calloc((tconst.m)*(tconst.n), sizeof(doublereal));
-	tconst.mat = {0,0,0, 1,0,0, 1,1,0, 2,1,0, 2,1,1, 3,1,1, 3,2,1, 4,2,1};
+	doublereal t_const[] = {0,0,0, 1,0,0, 1,1,0, 2,1,0, 2,1,1, 3,1,1, 3,2,1, 4,2,1};
+	tconst.mat = &t_const[0];
 	mat tt;
 	tt.m = t.m;
 	tt.n = tconst.n;
-//	tt.mat = (doublereal*) calloc((tt.m)*(tt.n), sizeof(doublereal));
-	tt.mat = {0,0,0,0,0,0,0,0};
+	tt.mat = (doublereal*) calloc((tt.m)*(tt.n), sizeof(doublereal));
+	zeros(&tt);
 	mat ttest;
 	ttest.n = tt.n;
 	ttest.m = tt.n + 1;
-	ttest.mat = {0,0,0,0,0,0,0,0,0};
+	ttest.mat = (doublereal*) calloc((ttest.m)*(ttest.n), sizeof(doublereal));
+	zeros(&ttest);
 	int len;
 	mat xj;
 	xj.n = 1;
@@ -1297,6 +1349,9 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	xa.n = 1;
 	mat xv;
 	xv.n = 1;
+
+	fprintf (pFile, "THIRDORD: Init %d \n",66);
+	fflush (pFile);
 
 	// % PART 1
 	p = abs(p);
@@ -1349,6 +1404,9 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	t.mat[2] = t3;
 
 	// % PART 2
+
+	fprintf (pFile, "THIRDORD: Part 1 %d \n",66);
+	fflush (pFile);
 
 	multmat(&t, &tconst, &tt);
 
@@ -1407,9 +1465,18 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 		xp->mat[k+1] = xp->mat[k] + xv.mat[k]*Ts;
 	}
 
+	fprintf (pFile, "THIRDORD: Part 2 %d \n",66);
+	fflush (pFile);
+
 	free(xj.mat);
 	free(xa.mat);
 	free(xv.mat);
+	free(t.mat);
+	free(tt.mat);
+	free(ttest.mat);
+
+	fprintf (pFile, "THIRDORD: Free Stuff %d \n",66);
+	fflush (pFile);
 
 }
 
