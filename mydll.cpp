@@ -751,7 +751,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 			}
 		}
-		else if ( dx == 0 && dy == 0 )
+		else if ( dx == 0.0 && dy == 0.0 )
 		{
 			tr.m = 2;
 			tr.n = 1;
@@ -857,11 +857,14 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		}
 		interpola( &tr, &pr_x, &mytime, &rtmpx );
 		interpola( &tr, &pr_y, &mytime, &rtmpy );
+		fprintf (pFile, "INTERPOLATED: %d \n",5);
 		for ( int i = 0; i < N; i++ )
 		{
 			ref.mat[2*i]     = rtmpx.mat[i];
 			ref.mat[(2*i)+1] = rtmpy.mat[i];
+			fprintf (pFile, "%6.6f, ",rtmpx.mat[i]);
 		}
+		fprintf (pFile, " fin %d \n",666);
 		fprintf (pFile, "Reference Vector Successfull %d \n",6);
 		fflush (pFile);
 		// % 2) Compute Unconstrained MPC Input
@@ -899,7 +902,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	    fprintf (pFile, "Aqui 0 %d \n",7);
 	    for (int i = 0; i < G.m*G.n; i++ )
 	    {
-			G.mat[i] = 2*(pPsi.mat[i] + gEq2.mat[i]);
+			G.mat[i] = 2.0*(pPsi.mat[i] + gEq2.mat[i]);
 	    }
 	    // F matrix
 	    fprintf (pFile, "Aqui 1 %d \n",7);
@@ -927,7 +930,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	    fflush (pFile);
 	    for ( int i = 0; i < F.m*F.n; i++ )
 	    {
-	    	F.mat[i] = 2*F.mat[i];
+	    	F.mat[i] = 2.0*F.mat[i];
 	    }
 	    fprintf (pFile, "G and F Successfull %d \n",8);
 		fflush (pFile);
@@ -940,11 +943,15 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	    	du.mat[i] = sol.mat[i];
 	    	ukm1.mat[i] = ukm1.mat[i] - du.mat[i];
 	    }
+	    fprintf (pFile, "Unlimited u1 = %3.3f, u1 = %3.3f \n",ukm1.mat[0],ukm1.mat[1]);
+	    fflush (pFile);
 	    // 3) Limit the Inputs
 	    ukm1.mat[0] = min(ukm1.mat[0],1.0);
 	    ukm1.mat[0] = max(ukm1.mat[0],-1.0);
 	    ukm1.mat[1] = min(ukm1.mat[1],1.0);
 		ukm1.mat[1] = max(ukm1.mat[1],-1.0);
+		fprintf (pFile, "Limited u1 = %3.3f, u1 = %3.3f \n",ukm1.mat[0],ukm1.mat[1]);
+		fflush (pFile);
 		// % 4) Write Input
 		for ( int i = 0; i < sysB.n; i++ )
 		{
@@ -971,7 +978,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 
 		// SUPERVISORY CONTROL
 		// Check weather next point has been reached
-		if ( sqrt( pow((m_ym.mat[0]-wayPointX[res+1]), 2) + pow((m_ym.mat[2]-wayPointY[res+1]), 2) ) < *radio )
+		if ( sqrt( pow((m_ym.mat[0]-wayPointX[res+1]), 2.0) + pow((m_ym.mat[2]-wayPointY[res+1]), 2.0) ) < *radio )
 		{
 			fprintf (pFile, "A Point has been achieved %d \n",count);
 			fflush (pFile);
@@ -1011,7 +1018,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 					}
 				}
-				else if ( dx == 0 && dy == 0 )
+				else if ( dx == 0.0 && dy == 0.0 )
 				{
 					tr.m = 2;
 					tr.n = 1;
@@ -1146,7 +1153,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		multmat(&ngammat, &gEq1, &gEq2);
 		for (int i = 0; i < G.m*G.n; i++ )
 		{
-			G.mat[i] = 2*(pPsi.mat[i] + gEq2.mat[i]);
+			G.mat[i] = 2.0*(pPsi.mat[i] + gEq2.mat[i]);
 		}
 		// F matrix
 		multmat(&ntheta, &ukm1, &fEq1);
@@ -1160,7 +1167,7 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		multmat(&ngammat, &fEq4, &F);
 		for ( int i = 0; i < F.m*F.n; i++ )
 		{
-			F.mat[i] = 2*F.mat[i];
+			F.mat[i] = 2.0*F.mat[i];
 		}
 		// Solution
 		pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
@@ -1338,8 +1345,8 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	tt.mat = (doublereal*) calloc((tt.m)*(tt.n), sizeof(doublereal));
 	zeros(&tt);
 	mat ttest;
-	ttest.n = tt.n;
-	ttest.m = tt.n + 1;
+	ttest.m = tt.m;
+	ttest.n = tt.n + 1;
 	ttest.mat = (doublereal*) calloc((ttest.m)*(ttest.n), sizeof(doublereal));
 	zeros(&ttest);
 	int len;
@@ -1359,44 +1366,73 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	a = abs(a);
 	j = abs(j);
 
+	fprintf (pFile, "THIRDORD: p = %6.6f, v = %6.6f, a = %6.6f, j = %6.6f, Ts = %6.6f \n",p,v,a,j,Ts);
+	fflush (pFile);
+
 	// % Calculation t1
-    t1 = pow((p/(2*j)),(1/3)) ; // % largest t1 with bound on jerk
+    t1 = pow((p/(2.0*j)),(1.0/3.0)) ; // % largest t1 with bound on jerk
+    fprintf (pFile, "THIRDORD: t1 = %6.6f \n",t1);
+	fflush (pFile);
     t1 = ceil(t1/Ts)*Ts;
-    jd = 1/2*p/(pow(t1,3));
+    fprintf (pFile, "THIRDORD: t1 = %6.6f \n",t1);
+	fflush (pFile);
+    jd = 1.0/2.0*p/(pow(t1,3.0));
     // % velocity test
-	if ( v < jd*(pow(t1,2)) )         // % v bound violated ?
+	if ( v < jd*(pow(t1,2.0)) )         // % v bound violated ?
 	{
-	   t1 = pow((v/j),(1/2)) ;  // % t1 with bound on velocity not violated
+	   t1 = pow((v/j),(1.0/2.0)) ;  // % t1 with bound on velocity not violated
+	   fprintf (pFile, "THIRDORD: t1 = %6.6f \n",t1);
+	   	fflush (pFile);
 	   t1 = ceil(t1/Ts)*Ts;
-	   jd = v/(pow(t1,2));
+	   fprintf (pFile, "THIRDORD: t1 = %6.6f \n",t1);
+	   	fflush (pFile);
+	   jd = v/(pow(t1,2.0));
 	}
 	// % acceleration test
 	if (a < jd*t1)     // % a bound violated ?
 	{
 	   t1 = a/j ;    // % t1 with bound on acceleration not violated
+	   fprintf (pFile, "THIRDORD: t1 = %6.6f \n",t1);
+	   	fflush (pFile);
 	   t1 = ceil(t1/Ts)*Ts;
+	   fprintf (pFile, "THIRDORD: t1 = %6.6f \n",t1);
+	   	fflush (pFile);
 	   jd = a/t1;
 	}
 	j = jd;  // % as t1 is now fixed, jd is the new bound on jerk
+	fprintf (pFile, "THIRDORD: t1 = %6.6f, jd = %6.6f \n",t1,jd);
+	fflush (pFile);
 
 	// % Calculation t2
-	t2 = pow((pow(t1,2)/4+p/j/t1),(1/2)) - 3/2*t1 ;   // % largest t2 with bound on acceleration
+	t2 = pow((pow(t1,2.0)/4.0+p/j/t1),(1.0/2.0)) - (3.0/2.0)*t1 ;   // % largest t2 with bound on acceleration
+	fprintf (pFile, "THIRDORD: t2 = %6.6f \n",t2);
+	fflush (pFile);
 	t2 = ceil(t2/Ts)*Ts;
-	jd = p/( 2*(pow(t1,3)) + 3*(pow(t1,2))*t2 + t1*(pow(t2,2)) );
+	fprintf (pFile, "THIRDORD: t2 = %6.6f \n",t2);
+	fflush (pFile);
+	jd = p/( 2.0*(pow(t1,3.0)) + 3.0*(pow(t1,2.0))*t2 + t1*(pow(t2,2.0)) );
 
 	// % velocity test
-	if ( v < (jd*pow(t1,2) + jd*t1*t2) )   // % v bound violated ?
+	if ( v < (jd*pow(t1,2.0) + jd*t1*t2) )   // % v bound violated ?
 	{
 	   t2 = v/(j*t1) - t1 ;       // % t2 with bound on velocity not violated
+	   fprintf (pFile, "THIRDORD: t2 = %6.6f \n",t2);
+	   fflush (pFile);
 	   t2 = ceil(t2/Ts)*Ts;
-	   jd = v/( pow(t1,2) + t1*t2 );
+	   jd = v/( pow(t1,2.0) + t1*t2 );
 	}
 	j = jd;  // % as t2 is now fixed, jd is the new bound on jerk
+	fprintf (pFile, "THIRDORD: t2 = %6.6f, jd = %6.6f \n",t2,jd);
+	fflush (pFile);
 
 	// % Calculation t3
-	t3 = ( p - 2*j*(pow(t1,3)) - 3*j*(pow(t1,2))*t2 - j*t1*(pow(t2,2)) )/v ; // % t3 with bound on velocity
+	t3 = ( p - 2.0*j*(pow(t1,3.0)) - 3.0*j*(pow(t1,2.0))*t2 - j*t1*(pow(t2,2.0)) )/v ; // % t3 with bound on velocity
+	fprintf (pFile, "THIRDORD: t3 = %6.6f \n",t3);
+	   fflush (pFile);
 	t3 = ceil(t3/Ts)*Ts;
-	jd = p/( 2*(pow(t1,3)) + 3*(pow(t1,2))*t2 + t1*(pow(t2,2)) + (pow(t1,2))*t3 + t1*t2*t3 );
+	fprintf (pFile, "THIRDORD: t3 = %6.6f \n",t3);
+   fflush (pFile);
+	jd = p/( 2.0*(pow(t1,3.0)) + 3.0*(pow(t1,2.0))*t2 + t1*(pow(t2,2.0)) + (pow(t1,2.0))*t3 + t1*t2*t3 );
 
 	// % All time intervals are now calculated
 	t.mat[0] = t1;
@@ -1404,7 +1440,7 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	t.mat[2] = t3;
 
 	// % PART 2
-
+	fprintf (pFile, "THIRDORD: t1 = %6.6f, t2 = %6.6f, t3 = %6.6f, jd = %6.6f \n",t1,t2,t3,jd);
 	fprintf (pFile, "THIRDORD: Part 1 %d \n",66);
 	fflush (pFile);
 
@@ -1413,9 +1449,16 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	for ( int i = 0; i < tt.n; i++ )
 	{
 		ttest.mat[i] = tt.mat[i];
+		fprintf (pFile, "%6.6f, ",ttest.mat[i]);
 	}
-	ttest.mat[tt.n] = 1.5*tt.mat[8];
-	len = (int) lround(1.2*tt.mat[8]/Ts + 1.0);
+	ttest.mat[tt.n] = 1.5*tt.mat[7];
+	fprintf (pFile, "%6.6f \n ",ttest.mat[tt.n]);
+	fprintf (pFile, "THIRDORD: tt_end: %6.6f \n",tt.mat[7]);
+	fflush (pFile);
+
+	len = (int) lround(1.2*tt.mat[7]/Ts + 1.0);
+	fprintf (pFile, "THIRDORD: len: %d \n",len);
+	fflush (pFile);
 	xj.m = len;
 	xj.mat = (doublereal*) calloc((xj.m)*(xj.n), sizeof(doublereal));
 	zeros(&xj);
@@ -1435,14 +1478,19 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	for ( int i = 0; i < tx->m; i++ )
 	{
 		tx->mat[i] = i*Ts;
+		fprintf (pFile, "%6.6f, ",tx->mat[i]);
 	}
+	fprintf (pFile, "fin %d \n",666);
+	fflush (pFile);
 
-	for ( int k = 0; k < len; k++ )
+
+	int i;
+	for ( int k = 0; k < (len-1); k++ )
 	{
-		int i = 0;
+		i = -1;
 		for ( int j = 0; j < ttest.n; j++ )
 		{
-			if ( Ts*(k + 1/2) <= ttest.mat[j] )
+			if ( Ts*((k+1) + 0.5) <= ttest.mat[j] )
 			{
 				i = j - 1;
 				break;
@@ -1452,7 +1500,7 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 		{
 			xj.mat[k+1] = jd;
 		}
-		else if ( i == 2 || i == 5 )
+		else if ( i == 2 || i == 4 )
 		{
 			xj.mat[k+1] = -jd;
 		}
@@ -1463,7 +1511,10 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 		xa.mat[k+1] = xa.mat[k] + xj.mat[k]*Ts;
 		xv.mat[k+1] = xv.mat[k] + xa.mat[k]*Ts;
 		xp->mat[k+1] = xp->mat[k] + xv.mat[k]*Ts;
+		fprintf (pFile, "%6.6f, ",xp->mat[k+1]);
 	}
+	fprintf (pFile, " fin %d \n",666);
+	fflush (pFile);
 
 	fprintf (pFile, "THIRDORD: Part 2 %d \n",66);
 	fflush (pFile);
@@ -1487,7 +1538,7 @@ void interpola ( mat *tr_x, mat *pr_x, mat *my_tr, mat *my_pr )
 	doublereal m;
 	doublereal b;
 
-	zeros(my_tr);
+	zeros(my_pr);
 	tr_mem = 0;
 	for ( int i = 0; i < my_tr->m; i++ )
 	{
@@ -1497,8 +1548,8 @@ void interpola ( mat *tr_x, mat *pr_x, mat *my_tr, mat *my_pr )
 			if ( my_tr->mat[i] < tr_x->mat[j] )
 			{
 				m = (pr_x->mat[j]-pr_x->mat[j-1])/(tr_x->mat[j]-tr_x->mat[j-1]);
-				b = pr_x->mat[j] - m*tr_x->mat[j];
-				my_pr->mat[i] = m*my_tr->mat[i] + b;
+				b = pr_x->mat[j] - m*(tr_x->mat[j]);
+				my_pr->mat[i] = m*(my_tr->mat[i]) + b;
 				my_flag = 1;
 				tr_mem = j;
 				break;

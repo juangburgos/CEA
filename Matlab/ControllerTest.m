@@ -65,8 +65,8 @@ while 1
     % ************** CONTROLLER ******************************
     [y(:,t),u(:,t)] = MatController(yp(:,t),ruta(:,1),ruta(:,2),size(ruta,1),radio);
     
-    clc
-    disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
+%     clc
+%     disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
     
     if norm([yp(1,t),yp(3,t)]-ruta(end,:)) < (radio)
         break;
@@ -86,38 +86,38 @@ xp   = xp(:,1:t-1); % Plant State
 yp   = yp(:,1:t-1); % Plant Output
 time = time(:,1:t-1);
 
-figure();
-subplot(6,1,1),plot(time,y(1,:),'b-');
-hold on;
-subplot(6,1,1),plot(time,yp(1,:),'r--');
-axis([time(1) time(end) 0.9*min(yp(1,:)) 1.1*max(yp(1,:))]);
-legend('Observer Output','Plant Output');
-
-subplot(6,1,2),plot(time,y(2,:),'b-');
-hold on;
-subplot(6,1,2),plot(time,yp(2,:),'r--');
-axis([time(1) time(end) 0.9*min(yp(2,:)) 1.1*max(yp(2,:))]);
-
-subplot(6,1,3),plot(time,y(3,:),'b-');
-hold on;
-subplot(6,1,3),plot(time,yp(3,:),'r--');
-axis([time(1) time(end) 0.9*min(yp(3,:)) 1.1*max(yp(3,:))]);
-
-subplot(6,1,4),plot(time,y(4,:),'b-');
-hold on;
-subplot(6,1,4),plot(time,yp(4,:),'r--');
-axis([time(1) time(end) 0.9*min(yp(4,:)) 1.1*max(yp(4,:))]);
-
-subplot(6,1,5),plot(time,u(1,:),'b-');
-axis([time(1) time(end) -1 1]);
-
-subplot(6,1,6),plot(time,u(2,:),'b-');
-axis([time(1) time(end) -1 1]);
-
-figure();
-plot(ruta(:,1),ruta(:,2),'r-');
-hold on;
-plot(yp(1,:),yp(3,:),'b-');
+% figure();
+% subplot(6,1,1),plot(time,y(1,:),'b-');
+% hold on;
+% subplot(6,1,1),plot(time,yp(1,:),'r--');
+% axis([time(1) time(end) 0.9*min(yp(1,:)) 1.1*max(yp(1,:))]);
+% legend('Observer Output','Plant Output');
+% 
+% subplot(6,1,2),plot(time,y(2,:),'b-');
+% hold on;
+% subplot(6,1,2),plot(time,yp(2,:),'r--');
+% axis([time(1) time(end) 0.9*min(yp(2,:)) 1.1*max(yp(2,:))]);
+% 
+% subplot(6,1,3),plot(time,y(3,:),'b-');
+% hold on;
+% subplot(6,1,3),plot(time,yp(3,:),'r--');
+% axis([time(1) time(end) 0.9*min(yp(3,:)) 1.1*max(yp(3,:))]);
+% 
+% subplot(6,1,4),plot(time,y(4,:),'b-');
+% hold on;
+% subplot(6,1,4),plot(time,yp(4,:),'r--');
+% axis([time(1) time(end) 0.9*min(yp(4,:)) 1.1*max(yp(4,:))]);
+% 
+% subplot(6,1,5),plot(time,u(1,:),'b-');
+% axis([time(1) time(end) -1 1]);
+% 
+% subplot(6,1,6),plot(time,u(2,:),'b-');
+% axis([time(1) time(end) -1 1]);
+% 
+% figure();
+% plot(ruta(:,1),ruta(:,2),'r-');
+% hold on;
+% plot(yp(1,:),yp(3,:),'b-');
 
 % clc
 disp(['Unconstrained MPC Matlab: ',num2str(100*trobmat),' %']);
@@ -174,8 +174,8 @@ while 1
     u_c(:,t)        = get(p_u,'Value');
     y_c(:,t)        = get(p_y,'Value');
     
-    clc
-    disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
+%     clc
+%     disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
     
     if norm([yp_c(1,t),yp_c(3,t)]-ruta(end,:)) < (radio)
         break;
@@ -231,5 +231,5 @@ plot(ruta(:,1),ruta(:,2),'r-');
 hold on;
 plot(yp_c(1,:),yp_c(3,:),'b-');
 
-clc
+% clc
 disp(['Unconstrained MPC C: ',num2str(100*trobc),' %']);
