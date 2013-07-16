@@ -10,6 +10,7 @@
 #include <float.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 #define EXPORTING_DLL
 
@@ -135,6 +136,76 @@ void monpen(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal
     free (vt);
     free (sfull);
     free (usfull);
+}
+
+void monpennew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainvt,
+		doublereal *work, doublereal *s, doublereal *u, doublereal *vt, doublereal *sfull, doublereal *usfull)
+{
+	// init tolerance
+    doublereal tol = 0.0;
+    // define tolerance
+//    if (*mytol <= 0)
+//    {
+//		// tolerance
+//		tol = (*m) * machEps;
+//    }
+//    else
+//    {
+    	tol = *mytol;
+//    }
+    // allocate work matrix
+    integer lwork = 5*(*m)*(*n);
+//    doublereal *work = (doublereal*) calloc(5*(*m)*(*n), sizeof(doublereal));
+    // allocate s matrix
+//    doublereal *s = (doublereal*) calloc(*n, sizeof(doublereal)); // *m > *n for sure
+    // allocate u matrix
+//    doublereal *u = (doublereal*) calloc((*m)*(*m), sizeof(doublereal));
+    // allocate vt matrix
+//    doublereal *vt = (doublereal*) calloc((*n)*(*n), sizeof(doublereal));
+    // dgesvd function output
+    integer info  = 0.0;
+    // singular value decomposition
+    char jobu      = 'A';
+    char jobvt     = 'A';
+    dgesvd_(&jobu, &jobvt, m, n, a,
+		    m, s, u, m, vt, n,
+		    work, &lwork, &info);
+    // allocate sfull matrix
+//    doublereal *sfull = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
+    // fill sfull with zeros
+    for (int i = 0; i < (*m)*(*n); i++)
+    {
+    	sfull[i] = 0.0;
+    }
+    // fill diagonal of sfull with inverse of singular values
+    for (int i = 0; i < *n; i++)
+    {
+		if (s[i] > tol)
+		{
+			sfull[i+i*(*m)] = 1.0/(s[i]);
+		}
+    }
+    // allocate usfull matrix
+//    doublereal *usfull = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
+    // multiply u*sfull
+    char transa      = 'N';
+	char transb      = 'N';
+	doublereal alpha = 1.0;
+	doublereal beta  = 0.0;
+	dgemm_(&transa, &transb,
+	       m, n, m, &alpha, u, m,
+		   sfull, m, &beta, usfull, m);
+	// multiply usfull*vt
+	dgemm_(&transa, &transb,
+		   m, n, n, &alpha, usfull, m,
+		   vt, n, &beta, ainvt, m);
+
+//	free (work);
+//    free (s);
+//    free (u);
+//    free (vt);
+//    free (sfull);
+//    free (usfull);
 }
 
 extern "C" void __declspec(dllexport) __cdecl sqltest(integer *m, integer *n, doublereal *mymat)
@@ -442,7 +513,7 @@ extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doubler
 
 }
 
-extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio)
+extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio, doublereal *seconds)
 {
 	// Debugging Log
 //	static FILE * pFile;
@@ -537,6 +608,14 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	static mat F;
 	static mat sol;
 	static mat du;
+	static doublereal *work_inv;
+	static doublereal *s_inv;
+	static doublereal *u_inv;
+	static doublereal *vt_inv;
+	static doublereal *sfull;
+	static doublereal *usfull;
+	static doublereal *at;
+	static doublereal *ainvt;
 
 	//static int count = 0;
 
@@ -546,10 +625,13 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 //	   machEps /= 2.0;
 //	}
 //	while ((doublereal)(1.0 + (machEps/2.0)) != 1.0);
-
+	time_t t_start;
+	time_t t_end;
 	// % If Observer Initialization
 	if (cStatus == 0)
 	{
+
+		time(&t_start);
 		//pFile = fopen ("log.txt","w");
 		//fprintf (pFile, "INIT %d \n",0);
 		//fflush (pFile);
@@ -696,7 +778,15 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		du.mat      = (doublereal*) calloc(du.m*du.n, sizeof(doublereal));
 		F.m         = ngammat.m;
 		F.n         = fEq4.n;
-		F.mat      = (doublereal*) calloc(F.m*F.n, sizeof(doublereal));
+		F.mat       = (doublereal*) calloc(F.m*F.n, sizeof(doublereal));
+		work_inv = (doublereal*) calloc(5*(G.m)*(G.n), sizeof(doublereal));
+		s_inv    = (doublereal*) calloc(G.n, sizeof(doublereal));
+		u_inv    = (doublereal*) calloc((G.m)*(G.m), sizeof(doublereal));
+		vt_inv   = (doublereal*) calloc((G.n)*(G.n), sizeof(doublereal));
+		sfull    = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+		usfull   = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+		at       = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+		ainvt    = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
 
 		//fprintf (pFile, "Matrices inited successfully %d \n",2);
 		//fflush (pFile);
@@ -937,7 +1027,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 	    //fprintf (pFile, "G and F Successfull %d \n",8);
 		//fflush (pFile);
 	    // Solution
-	    pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
+//	    pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
+	    pinvnew(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat, work_inv, s_inv, u_inv, vt_inv, sfull, usfull, at, ainvt);
 	    multmat(&Ginv, &F, &sol);
 	    for ( int i = 0; i < sysB.n; i++ )
 	    {
@@ -967,9 +1058,13 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 		// % Initialization Finished
 		cStatus = 1;
 
+		// Measure time
+		time(&t_end);
+		*seconds = difftime(t_end,t_start);
 	}
 	else
 	{
+		time(&t_start);
 		//count++;
 		//fprintf (pFile, "One more count %d \n",count);
 		//fflush (pFile);
@@ -1194,7 +1289,8 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 			F.mat[i] = 2.0*F.mat[i];
 		}
 		// Solution
-		pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
+//		pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
+		pinvnew(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat, work_inv, s_inv, u_inv, vt_inv, sfull, usfull, at, ainvt);
 		multmat(&Ginv, &F, &sol);
 		for ( int i = 0; i < sysB.n; i++ )
 		{
@@ -1217,6 +1313,10 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 
 		//fprintf (pFile, "Inputs Computed u1 = %3.3f, u2 = %3.3f \n",u[0],u[1]);
 		//fflush (pFile);
+
+		// Measure time
+		time(&t_end);
+		*seconds = difftime(t_end,t_start);
 	}
 
 }
@@ -1318,6 +1418,46 @@ void pinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *
 		  }
 		  // free ainvt matrix
 		  free (ainvt);
+	  }
+}
+
+void pinvnew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv,
+		doublereal *work, doublereal *s, doublereal *u, doublereal *vt, doublereal *sfull, doublereal *usfull, doublereal *at, doublereal *ainvt)
+{
+	  // moore–penrose pseudoinverse
+	  if (*n > *m)
+	  {
+		  // allocate at matrix
+//		  doublereal *at = (doublereal*) calloc((*n)*(*m), sizeof(doublereal));
+		  // transpose of matrix a
+		  for (int i = 0; i < *m; i++) //stored in column major
+		  {
+			  for(int j = 0; j < *n; j++)
+			  {
+				  at[(*n)*(i)+j] = a[j*(*m)+i];
+			  }
+		  }
+		  // apply same algorithm to a^t and transpose the result
+		  monpennew(n,m,at,mytol,ainv,work,s,u,vt,sfull,usfull);
+		  // free at matrix
+//		  free (at);
+	  }
+	  else
+	  {
+		  // allocate ainvt matrix
+//		  doublereal *ainvt = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
+		  // apply normal algorithm to a
+		  monpennew(m,n,a,mytol,ainvt,work,s,u,vt,sfull,usfull);
+		  // transpose of matrix ainvt
+		  for (int i = 0; i < *m; i++) //stored in column major
+		  {
+			  for(int j = 0; j < *n; j++)
+			  {
+				  ainv[(*n)*(i)+j] = ainvt[j*(*m)+i];
+			  }
+		  }
+		  // free ainvt matrix
+//		  free (ainvt);
 	  }
 }
 

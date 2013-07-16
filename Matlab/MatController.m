@@ -1,4 +1,5 @@
-function [y,u] = MatController(ym,wayPointX,wayPointY,numWaypoints,radio)
+function [y,action] = MatController(position,velocity,numAxis,wayPointX, ...
+            wayPointY,numWaypoints,actualWayPoint,param,numParam)
 % void __cdecl Control (
 %
 % double *position, Vector de 3 elementos que contiene la posición actual 
@@ -86,8 +87,6 @@ persistent res;
 % Time when the last Waypoint was achieved
 persistent lastT;
 % References
-% persistent tr_x;
-% persistent tr_y;
 persistent tr;
 persistent pr_x;
 persistent pr_y;
@@ -98,11 +97,30 @@ persistent Ts;
 if isempty(Ts)
     Ts = 0.06;
 end
+% Radio
+persistent radio;
+if isempty(radio)
+    radio = 0.05;
+end
 % Prediction Horizon
 persistent N;
 if isempty(N)
     N = 50;
 end
+
+% Load Params
+vymax    = param(1);                     % max 2.1 [m/s] ~1.5 (dont move)
+aymax    = param(2);                    % ~0.55 (dont move)
+jymax    = param(3);                       % ~6 (dont move)
+vxmax    = param(4);                     % max 3.5 [m/s] ~3.1
+axmax    = param(5);                       % ~1 (dont move)
+jxmax    = param(6);                      % ~12 (dont move)
+
+% Read Meas
+ym(1,1) = position(1);
+ym(2,1) = velocity(1);
+ym(3,1) = position(2);
+ym(4,1) = velocity(2);
 
 % If Observer Initialization
 if cStatus == 0
@@ -128,7 +146,7 @@ if cStatus == 0
     res     = 0; % This index shound be 0 in C
     lastT   = 0;
     % Initial Conditions
-    x     = pinv(sysC)*ym;
+    x     = mypinv(sysC)*ym;
     xd    = zeros(size(Aj,1),1);
     ukm1  = zeros(size(Bp,2),1);
     % <----------- START CONTROL ----------------------------------------
@@ -136,12 +154,6 @@ if cStatus == 0
     % Reference Design
     dx       = wayPointX(res+2)-wayPointX(res+1);% In C it should be +1 and +0
     dy       = wayPointY(res+2)-wayPointY(res+1);% In C it should be +1 and +0
-    vymax    = 1.5;                     % max 2.1 [m/s] ~1.5 (dont move)
-    aymax    = 0.55;                    % ~0.55 (dont move)
-    jymax    = 6;                       % ~6 (dont move)
-    vxmax    = 3.1;                     % max 3.5 [m/s] ~3.1
-    axmax    = 1;                       % ~1 (dont move)
-    jxmax    = 12;                      % ~12 (dont move)
     if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
         [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
         if dy < 0
@@ -185,8 +197,6 @@ if cStatus == 0
     y       = sysC * x;
     % STATE FEEDBACK
     % 1) Compute Reference Vector
-%     rtmpx = zeros(N,1);
-%     rtmpy = zeros(N,1);
     mytime = zeros(N,1);
     for i = 1:1:N
         mytime(i) = iTime+(i-1)*Ts;
@@ -209,7 +219,7 @@ if cStatus == 0
     ngamma = pGamma*be;    % Warning, do not overwrite pGamma
     G   = 2*(pPsi+ngamma'*pOmega*ngamma);
     F   = 2*ngamma'*pOmega*(pPhi*x+pJota*xd+ntheta*ukm1-ref);
-    sol = pinv(G)*F;
+    sol = myls(G,F);
     du  = sol(1:size(Bsch,2),1);
     ukm1   = ukm1 - du;
     % 3) Limit the Inputs
@@ -218,7 +228,7 @@ if cStatus == 0
     ukm1(2) = min(ukm1(2),1);
     ukm1(2) = max(ukm1(2),-1);
     % 4) Write Input
-    u       = ukm1;
+    action       = ukm1;
     % Next internal time
     iTime   = iTime + Ts;
     % <----------- END CONTROL ----------------------------------------
@@ -237,12 +247,6 @@ elseif cStatus == 1
             % Reference Design
             dx       = wayPointX(res+2)-wayPointX(res+1);
             dy       = wayPointY(res+2)-wayPointY(res+1);
-            vymax    = 1.5;                     % max 2.1 [m/s] ~1.5 (dont move)
-            aymax    = 0.55;                    % ~0.55 (dont move)
-            jymax    = 6;                       % ~6 (dont move)
-            vxmax    = 3.1;                     % max 3.5 [m/s] ~3.1
-            axmax    = 1;                       % ~1 (dont move)
-            jxmax    = 12;                      % ~12 (dont move)
             if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
                 [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
                 if dy < 0
@@ -309,7 +313,7 @@ elseif cStatus == 1
     ngamma = pGamma*be;    % Warning, do not overwrite pGamma
     G   = 2*(pPsi+ngamma'*pOmega*ngamma);
     F   = 2*ngamma'*pOmega*(pPhi*x+pJota*xd+ntheta*ukm1-ref);
-    sol = pinv(G)*F;
+    sol = myls(G,F);
     du  = sol(1:size(Bsch,2),1);
     ukm1   = ukm1 - du;
     % 3) Limit the Inputs
@@ -318,7 +322,7 @@ elseif cStatus == 1
     ukm1(2) = min(ukm1(2),1);
     ukm1(2) = max(ukm1(2),-1);
     % 4) Write Input
-    u       = ukm1;
+    action       = ukm1;
     % Next internal time
     iTime   = iTime + Ts;
     % <----------- END CONTROL ----------------------------------------
@@ -475,6 +479,83 @@ try
             my_pr(i) = pr_x(end);
         end        
     end   
+catch err
+    keyboard;
+end
+
+%% Least Squares Optimization
+function x = myls(R,F)
+% Solves the equation R*x = F
+% using the QR decomposition method
+% R must be square of size (n,n) while
+% F and x must be tall matrices of size (n,1)
+
+try
+% % QR Decomposition
+
+% Initialize variables
+n = size(R,1);
+c = zeros(n,1);
+d = zeros(n,1);
+
+% Perform Householder QR decomposition
+for k = 1:(n-1)
+    scale = 0.0;
+    for i = k:n
+        scale = max(scale, abs(R(i,k)));
+    end
+    if (scale == 0.0)
+        c(k) = 0.0;
+        d(k) = 0.0;
+    else
+        for i = k:n
+            R(i,k) = R(i,k) / scale;
+        end
+        sum = 0.0;
+        for i = k:n
+            sum = sum + R(i,k) * R(i,k);
+        end
+        sigma = sqrt(sum) * sign(R(k,k));
+        R(k,k) = R(k,k) + sigma;
+        c(k) = sigma * R(k,k);
+        d(k) = -1.0 * scale * sigma;
+        for j = (k+1):n
+            sum = 0.0;
+            for i = k:n
+                sum = sum + R(i,k) * R(i,j);
+            end
+            tau = sum / c(k);
+            for i = k:n
+                R(i,j) = R(i,j) - tau * R(i,k);
+            end
+        end
+    end
+end
+d(n) = R(n,n);
+
+% Construct Q and erase temporary data in R
+% TODO: Could inegrate with loop in next step
+Q = eye(n);
+for j = (n-1):-1:1
+    Q(j:n,:) = Q(j:n,:) - ((1.0 / c(j)) * R(j:n,j)) * (R(j:n,j)' * Q(j:n,:));
+    R((j+1):n,j) = 0;
+    R(j,j) = d(j);
+end
+
+% % Compute Least Squares Solution
+
+b = Q'*F;
+
+x=zeros(n,1);
+x(n)=b(n)/R(n,n);
+for i = n-1:-1:1
+    term = 0;
+    for j = n:-1:i+1
+        term = term + R(i,j)*x(j);
+    end
+    x(i) = (1/R(i,i))*(b(i)-term);
+end
+
 catch err
     keyboard;
 end

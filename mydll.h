@@ -12,16 +12,21 @@
 extern "C" void __declspec(dllexport) __cdecl mypinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv);
 extern "C" void __declspec(dllexport) __cdecl sqltest(integer *m, integer *n, doublereal *mymat);
 extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doublereal *ym, doublereal *y);
-extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio);
+extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio, doublereal *seconds);
 #else
 extern "C" void __declspec(dllimport) __cdecl mypinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv);
 extern "C" void __declspec(dllimport) __cdecl sqltest(integer *m, integer *n, doublereal *mymat);
 extern "C" void __declspec(dllimport) __cdecl matobserver(doublereal *u, doublereal *ym, doublereal *y);
-extern "C" void __declspec(dllimport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio);
+extern "C" void __declspec(dllimport) __cdecl matcontroller(doublereal *u, doublereal *y, doublereal *ym, doublereal *wayPointX, doublereal *wayPointY, int numWaypoints, doublereal *radio, doublereal *seconds);
 #endif
 
 void monpen(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainvt);
 void pinv(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv);
+
+void monpennew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainvt,
+		doublereal *work, doublereal *s, doublereal *u, doublereal *vt, doublereal *sfull, doublereal *usfull);
+void pinvnew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv,
+		doublereal *work, doublereal *s, doublereal *u, doublereal *vt, doublereal *sfull, doublereal *usfull, doublereal *at, doublereal *ainvt);
 
 // Matrix Structure
 typedef struct mat{
