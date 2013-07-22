@@ -26,6 +26,7 @@ extern "C" {               // make sure these are visible in directory lookup
 //doublereal machEps = 1.0;
 doublereal Ts = 0.06;
 int N  = 50;
+doublereal radio = 0.05;
 doublereal mytol = 0.0;
 
 //FILE * pFile;
@@ -1321,6 +1322,806 @@ extern "C" void __declspec(dllexport) __cdecl matcontroller(doublereal *u, doubl
 
 }
 
+extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *velocity, double *action, int numAxis, double *wayPointX, double *wayPointY, int numWaypoints, double *actualWayPoint, double *param, int numParam, double *seconds)
+{
+
+	// Debugging Log
+//	static FILE * pFile;
+//	static int myCount = 0;
+	// % Controller Status Variable (Init = 0, Run = 1)
+	static int cStatus = 0;
+	// % Old Control Input
+	static mat ukm1;
+	// % Internal System Model State
+	static mat x;
+	// % Internal System Model A Matrix
+	static mat sysA;
+	// % Internal System Model B Matrix
+	static mat sysB;
+	// % Internal System Model C Matrix
+	static mat sysC;
+	// % Internal Disturbance Model State
+	static mat xd;
+	//% Internal Disturbance Model A Matrix
+	static mat disA;
+	// % Internal Disturbance Model B Matrix
+	static mat disB;
+	// % Internal Disturbance Model C Matrix
+	static mat disC;
+	// % Internal Disturbance Model D Matrix
+	static mat disD;
+	// % Roll Scheduling Parameters
+	static mat sRoll;
+	// % Pitch Scheduling Parameters
+	static mat sPitch;
+	// % Internal System Model C Position Matrix
+	static mat sysCpos;
+	// % Prediction Matrix Phi
+	static mat pPhi;
+	// % Prediction Matrix Jota
+	static mat pJota;
+	// % Prediction Matrix Theta
+	static mat pTheta;
+	// % Prediction Matrix Gamma
+	static mat pGamma;
+	// % Prediction Matrix Omega
+	static mat pOmega;
+	// % Prediction Matrix Psi
+	static mat pPsi;
+	// % Internal Time
+	static doublereal iTime;
+	// % Reference State
+	static int res;
+	// % Time when the last Waypoint was achieved
+	static doublereal lastT;
+	// % References
+	static mat tr;
+	static mat pr_x;
+	static mat pr_y;
+
+	// Measured Output in Matrix Form
+	static mat m_ym;
+	// Estimated Output in Matrix Form
+	static mat m_y;
+//	// wayPointX in Matrix Form
+//	static mat m_wayPointX;
+//	// wayPointY in Matrix Form
+//	static mat m_wayPointY;
+
+	// Temporal Matrices
+	static mat sysCinv;
+	static mat Sched;
+	static mat Bsch;
+	static mat stEq1;
+	static mat stEq2;
+	static mat stEq3;
+	static mat oErr;
+	static mat dtEq1;
+	static mat suEq1;
+	static mat duEq1;
+	static mat rtmpx;
+	static mat rtmpy;
+	static mat mytime;
+	static mat ref;
+	static mat be;
+	static mat ntheta;
+	static mat ngamma;
+	static mat ngammat;
+	static mat G;
+	static mat Ginv;
+	static mat gEq1;
+	static mat gEq2;
+	static mat fEq1;
+	static mat fEq2;
+	static mat fEq3;
+	static mat fEq4;
+	static mat F;
+	static mat sol;
+	static mat du;
+	static doublereal *work_inv;
+	static doublereal *s_inv;
+	static doublereal *u_inv;
+	static doublereal *vt_inv;
+	static doublereal *sfull;
+	static doublereal *usfull;
+	static doublereal *at;
+	static doublereal *ainvt;
+
+	//static int count = 0;
+
+	// Calculate Machine Epsilon
+	// linear search for machine tolerance (**eliminate this when possible**)
+//	do {
+//	   machEps /= 2.0;
+//	}
+//	while ((doublereal)(1.0 + (machEps/2.0)) != 1.0);
+	time_t t_start;
+	time_t t_end;
+
+	// % Load Params
+	doublereal dx, dy, vymax, aymax, jymax, vxmax, axmax, jxmax;
+	vymax = param[0];
+	aymax = param[1];
+	jymax = param[2];
+	vxmax = param[3];
+	axmax = param[4];
+	jxmax = param[5];
+
+	// % If Observer Initialization
+	if (cStatus == 0)
+	{
+
+		time(&t_start);
+		//pFile = fopen ("log.txt","w");
+		//fprintf (pFile, "INIT %d \n",0);
+		//fflush (pFile);
+		// % Initlialize Parameters and States
+		sqlite3_initialize();
+		sqlite3 *db;
+		// Open Database
+		int error = sqlite3_open_v2( "test.db", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL );
+		if (error)
+		{
+			sqlite3_close(db);
+			system("pause");
+		}
+		readmatsql(db, "Ap", &sysA);
+		readmatsql(db, "Bp", &sysB);
+		readmatsql(db, "Cp", &sysC);
+		readmatsql(db, "Aj", &disA);
+		readmatsql(db, "Bj", &disB);
+		readmatsql(db, "Cj", &disC);
+		readmatsql(db, "Dj", &disD);
+		readmatsql(db, "rollparams", &sRoll);
+		readmatsql(db, "pitchparams", &sPitch);
+
+		readmatsql(db, "Cpos", &sysCpos);
+		readmatsql(db, "phi", &pPhi);
+		readmatsql(db, "jota", &pJota);
+		readmatsql(db, "theta", &pTheta);
+		readmatsql(db, "gama", &pGamma);
+		readmatsql(db, "omega", &pOmega);
+		readmatsql(db, "pssi", &pPsi);
+		iTime = 0.0;
+		res   = 0;
+		lastT = 0.0;
+		// Close Database
+		sqlite3_close(db);
+		//fprintf (pFile, "Matrices loaded successfully %d \n",1);
+		//fflush (pFile);
+		// Init Inputs, States, Outputs and wayPoints in Matrix Form
+		ukm1.m    = sysB.n;
+		ukm1.n    = 1;
+		ukm1.mat  = (doublereal*) calloc(ukm1.m*ukm1.n, sizeof(doublereal));
+		m_ym.m   = sysC.m;
+		m_ym.n   = 1;
+		m_ym.mat = (doublereal*) calloc(m_ym.m*m_ym.n, sizeof(doublereal));
+		m_y.m    = sysC.m;
+		m_y.n    = 1;
+		m_y.mat  = (doublereal*) calloc(m_y.m*m_y.n, sizeof(doublereal));
+		x.m      = sysA.m;
+		x.n      = 1;
+		x.mat    = (doublereal*) calloc(x.m*x.n, sizeof(doublereal));
+		xd.m     = disA.m;
+		xd.n     = 1;
+		xd.mat   = (doublereal*) calloc(xd.m*xd.n, sizeof(doublereal));
+		// Init Temporal Matrices
+		sysCinv.m   = sysC.n;
+		sysCinv.n   = sysC.m;
+		sysCinv.mat = (doublereal*) calloc(sysCinv.m*sysCinv.n, sizeof(doublereal));
+		Bsch.m      = sysB.m;
+		Bsch.n      = sysB.n;
+		Bsch.mat    = (doublereal*) calloc(Bsch.m*Bsch.n, sizeof(doublereal));
+		Sched.m     = sysB.n;
+		Sched.n     = sysB.n;
+		Sched.mat   = (doublereal*) calloc(Sched.m*Sched.n, sizeof(doublereal));
+		stEq1.m     = sysA.m;
+		stEq1.n     = x.n;
+		stEq1.mat   = (doublereal*) calloc(stEq1.m*stEq1.n, sizeof(doublereal));
+		stEq2.m     = disC.m;
+		stEq2.n     = xd.n;
+		stEq2.mat   = (doublereal*) calloc(stEq2.m*stEq2.n, sizeof(doublereal));
+		stEq3.m     = Bsch.m;
+		stEq3.n     = ukm1.n;
+		stEq3.mat   = (doublereal*) calloc(stEq3.m*stEq3.n, sizeof(doublereal));
+		oErr.m      = m_y.m;
+		oErr.n      = m_y.n;
+		oErr.mat    = (doublereal*) calloc(oErr.m*oErr.n, sizeof(doublereal));
+		dtEq1.m     = disA.m;
+		dtEq1.n     = xd.n;
+		dtEq1.mat   = (doublereal*) calloc(dtEq1.m*dtEq1.n, sizeof(doublereal));
+		suEq1.m     = disD.m;
+		suEq1.n     = oErr.n;
+		suEq1.mat   = (doublereal*) calloc(suEq1.m*suEq1.n, sizeof(doublereal));
+		duEq1.m     = disB.m;
+		duEq1.n     = oErr.n;
+		duEq1.mat   = (doublereal*) calloc(duEq1.m*duEq1.n, sizeof(doublereal));
+		rtmpx.m     = N;
+		rtmpx.n     = 1;
+		rtmpx.mat   = (doublereal*) calloc(rtmpx.m*rtmpx.n, sizeof(doublereal));
+		rtmpy.m     = N;
+		rtmpy.n     = 1;
+		rtmpy.mat   = (doublereal*) calloc(rtmpy.m*rtmpy.n, sizeof(doublereal));
+		mytime.m    = N;
+		mytime.n    = 1;
+		mytime.mat  = (doublereal*) calloc(mytime.m*mytime.n, sizeof(doublereal));
+		ref.m       = 2*N;
+		ref.n       = 1;
+		ref.mat     = (doublereal*) calloc(ref.m*ref.n, sizeof(doublereal));
+		be.m        = N*Bsch.m;
+		be.n        = N*Bsch.n;
+		be.mat      = (doublereal*) calloc(be.m*be.n, sizeof(doublereal));
+		ntheta.m    = pTheta.m;
+		ntheta.n    = Bsch.n;
+		ntheta.mat  = (doublereal*) calloc(ntheta.m*ntheta.n, sizeof(doublereal));
+		ngamma.m    = pGamma.m;
+		ngamma.n    = be.n;
+		ngamma.mat  = (doublereal*) calloc(ngamma.m*ngamma.n, sizeof(doublereal));
+		ngammat.m   = ngamma.n;
+		ngammat.n   = ngamma.m;
+		ngammat.mat = (doublereal*) calloc(ngammat.m*ngammat.n, sizeof(doublereal));
+		gEq1.m      = pOmega.m;
+		gEq1.n      = ngamma.n;
+		gEq1.mat    = (doublereal*) calloc(gEq1.m*gEq1.n, sizeof(doublereal));
+		gEq2.m      = ngammat.m;
+		gEq2.n      = gEq1.n;
+		gEq2.mat    = (doublereal*) calloc(gEq2.m*gEq2.n, sizeof(doublereal));
+		G.m         = ngammat.m;
+		G.n         = ngamma.n;
+		G.mat       = (doublereal*) calloc(G.m*G.n, sizeof(doublereal));
+		Ginv.m      = G.n;
+		Ginv.n      = G.m;
+		Ginv.mat    = (doublereal*) calloc(Ginv.m*Ginv.n, sizeof(doublereal));
+		fEq1.m      = ntheta.m;
+		fEq1.n      = ukm1.n;
+		fEq1.mat    = (doublereal*) calloc(fEq1.m*fEq1.n, sizeof(doublereal));
+		fEq2.m      = pJota.m;
+		fEq2.n      = xd.n;
+		fEq2.mat    = (doublereal*) calloc(fEq2.m*fEq2.n, sizeof(doublereal));
+		fEq3.m      = pPhi.m;
+		fEq3.n      = x.n;
+		fEq3.mat    = (doublereal*) calloc(fEq3.m*fEq3.n, sizeof(doublereal));
+		fEq4.m      = pOmega.m;
+		fEq4.n      = ref.n;
+		fEq4.mat    = (doublereal*) calloc(fEq4.m*fEq4.n, sizeof(doublereal));
+		sol.m       = Ginv.m;
+		sol.n       = F.n;
+		sol.mat     = (doublereal*) calloc(sol.m*sol.n, sizeof(doublereal));
+		du.m        = ukm1.m;
+		du.n        = ukm1.n;
+		du.mat      = (doublereal*) calloc(du.m*du.n, sizeof(doublereal));
+		F.m         = ngammat.m;
+		F.n         = fEq4.n;
+		F.mat       = (doublereal*) calloc(F.m*F.n, sizeof(doublereal));
+		work_inv = (doublereal*) calloc(5*(G.m)*(G.n), sizeof(doublereal));
+		s_inv    = (doublereal*) calloc(G.n, sizeof(doublereal));
+		u_inv    = (doublereal*) calloc((G.m)*(G.m), sizeof(doublereal));
+		vt_inv   = (doublereal*) calloc((G.n)*(G.n), sizeof(doublereal));
+		sfull    = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+		usfull   = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+		at       = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+		ainvt    = (doublereal*) calloc((G.m)*(G.n), sizeof(doublereal));
+
+		//fprintf (pFile, "Matrices inited successfully %d \n",2);
+		//fflush (pFile);
+		// 0) Input/Output Pointers
+		zeros(&ukm1);
+		//fprintf (pFile, "Step 0 successfully %d \n",3);
+		//fflush (pFile);
+		// % Initial Conditions
+		// Initial Plant States
+		// Calculate C inverse
+		// doublereal mytol = -1.0;
+		pinv(&(sysC.m), &(sysC.n), sysC.mat, &mytol, sysCinv.mat);
+		//   Multiply x = Cinv * ym
+		multmat(&sysCinv, &m_ym, &x);
+		//   Init xd = zeros
+		zeros(&xd);
+		//fprintf (pFile, "Initial Conditions successfully %d \n",4);
+		//fflush (pFile);
+
+		// % <----------- START CONTROL ----------------------------------------
+		// % Read Meas
+		m_ym.mat[0] = position[0];
+		m_ym.mat[1] = velocity[0];
+		m_ym.mat[2] = position[1];
+		m_ym.mat[3] = velocity[1];
+		// % SUPERVISORY CONTROL
+		// % Reference Design
+		dx = wayPointX[res+1] - wayPointX[res];
+		dy = wayPointY[res+1] - wayPointY[res];
+		//fprintf (pFile, "Supervisory dx = %3.3f, dy = %3.3f \n",dx,dy);
+		//fflush (pFile);
+		if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
+		{
+			thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+			//fprintf (pFile, "Supervisory after Thirdord dy = %3.3f \n",dy);
+			//fflush (pFile);
+			if ( dy < 0 )
+			{
+				for (int i = 0; i < pr_y.m; i++)
+				{
+					pr_y.mat[i] = -pr_y.mat[i];
+				}
+			}
+			pr_x.m   = pr_y.m;
+			pr_x.n   = pr_y.n;
+			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+			for (int i = 0; i < pr_y.m; i++)
+			{
+				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
+			}
+		}
+		else if ( dx == 0.0 && dy == 0.0 )
+		{
+			tr.m = 2;
+			tr.n = 1;
+			tr.mat = (doublereal*) calloc((tr.m)*(tr.n), sizeof(doublereal));
+			tr.mat[0] = 0.0;
+			tr.mat[1] = Ts;
+			pr_x.m = 2;
+			pr_x.n = 1;
+			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+			pr_x.mat[0] = 0.0;
+			pr_x.mat[1] = 0.0;
+			pr_y.m = 2;
+			pr_y.n = 1;
+			pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+			pr_y.mat[0] = 0.0;
+			pr_y.mat[1] = 0.0;
+		}
+		else
+		{
+			thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
+			//fprintf (pFile, "Supervisory after Thirdord dx = %3.3f \n",dx);
+			//fprintf (pFile, "Xref = (%d x %d) \n",pr_x.m,pr_x.n);
+			//fflush (pFile);
+			if ( dx < 0 )
+			{
+				for (int i = 0; i < pr_x.m; i++)
+				{
+					pr_x.mat[i] = -pr_x.mat[i];
+				}
+			}
+			pr_y.m   = pr_x.m;
+			pr_y.n   = pr_x.n;
+			pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+			for (int i = 0; i < pr_y.m; i++)
+			{
+				pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+				//fprintf (pFile, "%3.3f, ",pr_x.mat[i]);
+			}
+			//fflush (pFile);
+		}
+		for (int i = 0; i < tr.m; i++)
+		{
+			tr.mat[i] = tr.mat[i] + lastT;
+			pr_x.mat[i] = pr_x.mat[i] + wayPointX[res];
+			pr_y.mat[i] = pr_y.mat[i] + wayPointY[res];
+		}
+		//fprintf (pFile, "\n Supervisor Successfull %d \n",4);
+		//fflush (pFile);
+
+		// % 1) PREDICT
+		// % Scheduled B matrix
+		zeros(&Sched);
+		Sched.mat[0] = sinfit(ukm1.mat[0], &sRoll);
+		Sched.mat[3] = sinfit(ukm1.mat[1], &sPitch);
+		multmat(&sysB, &Sched, &Bsch);
+		// % Nominal Model State Equation
+		multmat(&sysA, &x, &stEq1);
+		multmat(&disC, &xd, &stEq2);
+		multmat(&Bsch, &ukm1, &stEq3);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = stEq1.mat[i] + stEq2.mat[i] + stEq3.mat[i];
+		}
+		// % Disturbance Model State Equation
+		multmat(&disA, &xd, &dtEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = dtEq1.mat[i];
+		}
+//		//fprintf (pFile, "Step 1 successfully %d \n",5);
+//		//fflush (pFile);
+		// % Output Equation
+		multmat(&sysC, &x, &m_y);
+		// % 2) CORRECT
+		// Observer Error
+		for(int i = 0; i < oErr.m; i++)
+		{
+			oErr.mat[i] = m_ym.mat[i] - m_y.mat[i];
+		}
+		// % Update Nominal Model States
+		multmat(&disD, &oErr, &suEq1);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = x.mat[i] + suEq1.mat[i];
+		}
+		// % Update Disturbance Model States
+		multmat(&disB, &oErr, &duEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = xd.mat[i] + duEq1.mat[i];
+		}
+		// % Update Output
+		multmat(&sysC, &x, &m_y);
+
+		//fprintf (pFile, "Observer Successfull %d \n",5);
+		//fflush (pFile);
+
+		// % STATE FEEDBACK
+		// % 1) Compute Reference Vector
+		for ( int i = 0; i < N; i++ )
+		{
+			mytime.mat[i] = iTime + i*Ts;
+		}
+		interpola( &tr, &pr_x, &mytime, &rtmpx );
+		interpola( &tr, &pr_y, &mytime, &rtmpy );
+		//fprintf (pFile, "INTERPOLATED: %d \n",5);
+		for ( int i = 0; i < N; i++ )
+		{
+			ref.mat[2*i]     = rtmpx.mat[i];
+			ref.mat[(2*i)+1] = rtmpy.mat[i];
+			//fprintf (pFile, "%6.6f, ",rtmpx.mat[i]);
+		}
+		//fprintf (pFile, " fin %d \n",666);
+		//fprintf (pFile, "Reference Vector Successfull %d \n",6);
+		//fflush (pFile);
+		// % 2) Compute Unconstrained MPC Input
+		int filas    = Bsch.m;
+		int columnas = Bsch.n;
+		for ( int i = 0; i < N; i++ )
+		{
+			for ( int j = 0; j < columnas; j++ )
+			{
+				for ( int k = 0; k < filas; k++ )
+				{
+//					be.mat[i*(N*filas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+					be.mat[i*(N*filas*columnas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+				}
+			}
+		}
+		multmat(&pTheta, &Bsch, &ntheta);
+		multmat(&pGamma, &be, &ngamma);
+		// transpose of matrix ngamma
+	    for (int i = 0; i < ngamma.m; i++) //stored in column major
+	    {
+	  	    for(int j = 0; j < ngamma.n; j++)
+		    {
+			    ngammat.mat[(ngamma.n)*(i)+j] = ngamma.mat[j*(ngamma.m)+i];
+		    }
+	    }
+	    //fprintf (pFile, "be matrix and ngamma_t successfull %d \n",7);
+		//fflush (pFile);
+	    // G matrix
+	    multmat(&pOmega, &ngamma, &gEq1);
+	    //fflush (pFile);
+	    //fprintf (pFile, "Aqui -1 %d \n",7);
+	    multmat(&ngammat, &gEq1, &gEq2);
+	    //fflush (pFile);
+	    //fprintf (pFile, "Aqui 0 %d \n",7);
+	    for (int i = 0; i < G.m*G.n; i++ )
+	    {
+			G.mat[i] = 2.0*(pPsi.mat[i] + gEq2.mat[i]);
+	    }
+	    // F matrix
+	    //fprintf (pFile, "Aqui 1 %d \n",7);
+	    //fflush (pFile);
+	    multmat(&ntheta, &ukm1, &fEq1);
+	    //fprintf (pFile, "Aqui 2 %d \n",7);
+	    //fflush (pFile);
+	    multmat(&pJota, &xd, &fEq2);
+	    //fprintf (pFile, "Aqui 3 %d \n",7);
+	    //fflush (pFile);
+	    multmat(&pPhi, &x, &fEq3);
+	    //fprintf (pFile, "Aqui 4 %d \n",7);
+	    //fflush (pFile);
+	    for (int i = 0; i < fEq1.m*fEq1.n; i++ )
+	    {
+	    	fEq1.mat[i] = fEq1.mat[i] + fEq2.mat[i] + fEq3.mat[i] - ref.mat[i];
+	    }
+	    //fprintf (pFile, "Aqui 5 %d \n",7);
+	    //fflush (pFile);
+	    multmat(&pOmega, &fEq1, &fEq4);
+	    //fprintf (pFile, "Aqui 6 %d \n",7);
+	    //fflush (pFile);
+	    multmat(&ngammat, &fEq4, &F);
+	    //fprintf (pFile, "Aqui 7 %d \n",7);
+	    //fflush (pFile);
+	    for ( int i = 0; i < F.m*F.n; i++ )
+	    {
+	    	F.mat[i] = 2.0*F.mat[i];
+	    }
+	    //fprintf (pFile, "G and F Successfull %d \n",8);
+		//fflush (pFile);
+	    // Solution
+//	    pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
+	    pinvnew(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat, work_inv, s_inv, u_inv, vt_inv, sfull, usfull, at, ainvt);
+	    multmat(&Ginv, &F, &sol);
+	    for ( int i = 0; i < sysB.n; i++ )
+	    {
+	    	// Keep du in case we want to limit it
+	    	du.mat[i] = sol.mat[i];
+	    	ukm1.mat[i] = ukm1.mat[i] - du.mat[i];
+	    }
+	    //fprintf (pFile, "Unlimited u1 = %3.3f, u1 = %3.3f \n",ukm1.mat[0],ukm1.mat[1]);
+	    //fflush (pFile);
+	    // 3) Limit the Inputs
+	    ukm1.mat[0] = min(ukm1.mat[0],1.0);
+	    ukm1.mat[0] = max(ukm1.mat[0],-1.0);
+	    ukm1.mat[1] = min(ukm1.mat[1],1.0);
+		ukm1.mat[1] = max(ukm1.mat[1],-1.0);
+		//fprintf (pFile, "Limited u1 = %3.3f, u1 = %3.3f \n",ukm1.mat[0],ukm1.mat[1]);
+		//fflush (pFile);
+		// % 4) Write Input
+		for ( int i = 0; i < sysB.n; i++ )
+		{
+			action[i] = ukm1.mat[i];
+		}
+		// Next internal time
+	    iTime = iTime + Ts;
+
+		//fprintf (pFile, "Control Solution Successfull %d \n",9);
+		//fflush (pFile);
+		// % Initialization Finished
+		cStatus = 1;
+
+		// Measure time
+		time(&t_end);
+		*seconds = difftime(t_end,t_start);
+	}
+	else
+	{
+		time(&t_start);
+		//count++;
+		//fprintf (pFile, "One more count %d \n",count);
+		//fflush (pFile);
+		// % Read Meas
+		m_ym.mat[0] = position[0];
+		m_ym.mat[1] = velocity[0];
+		m_ym.mat[2] = position[1];
+		m_ym.mat[3] = velocity[1];
+		// SUPERVISORY CONTROL
+		// Check weather next point has been reached
+		if ( sqrt( pow((m_ym.mat[0]-wayPointX[res+1]), 2.0) + pow((m_ym.mat[2]-wayPointY[res+1]), 2.0) ) < radio )
+		{
+			//fprintf (pFile, "A Point has been achieved %d \n",count);
+			//fflush (pFile);
+			if ( (res+2) < numWaypoints ) // red+2 still because later res++ and access res+1
+			{
+				// Free previous reference
+				free(tr.mat);
+				free(pr_x.mat);
+				free(pr_y.mat);
+				// % Update Reference State and Last Time
+				res   = res + 1;
+				lastT = iTime;
+				// % Reference Design
+				dx = wayPointX[res+1] - wayPointX[res];
+				dy = wayPointY[res+1] - wayPointY[res];
+				if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
+				{
+					thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+					//fprintf (pFile, "Supervisory after Thirdord dy = %3.3f \n",dy);
+					//fprintf (pFile, "dx = %3.3f \n",dx);
+					//fflush (pFile);
+					if ( dy < 0 )
+					{
+						for (int i = 0; i < pr_y.m; i++)
+						{
+							pr_y.mat[i] = -pr_y.mat[i];
+						}
+					}
+					pr_x.m   = pr_y.m;
+					pr_x.n   = pr_y.n;
+					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+					for (int i = 0; i < pr_y.m; i++)
+					{
+						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
+					}
+				}
+				else if ( dx == 0.0 && dy == 0.0 )
+				{
+					tr.m = 2;
+					tr.n = 1;
+					tr.mat = (doublereal*) calloc((tr.m)*(tr.n), sizeof(doublereal));
+					tr.mat[0] = 0.0;
+					tr.mat[1] = Ts;
+					pr_x.m = 2;
+					pr_x.n = 1;
+					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+					pr_x.mat[0] = 0.0;
+					pr_x.mat[1] = 0.0;
+					pr_y.m = 2;
+					pr_y.n = 1;
+					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+					pr_y.mat[0] = 0.0;
+					pr_y.mat[1] = 0.0;
+				}
+				else
+				{
+					thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
+					//fprintf (pFile, "Supervisory after Thirdord dx = %3.3f \n",dx);
+					//fprintf (pFile, "dy = %3.3f \n",dy);
+					//fflush (pFile);
+					if ( dx < 0 )
+					{
+						for (int i = 0; i < pr_x.m; i++)
+						{
+							pr_x.mat[i] = -pr_x.mat[i];
+						}
+					}
+					pr_y.m   = pr_x.m;
+					pr_y.n   = pr_x.n;
+					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+					for (int i = 0; i < pr_y.m; i++)
+					{
+						pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+					}
+				}
+				//fprintf (pFile, "CORRECTED X REFERENCE %3.3f \n",0.000);
+				for (int i = 0; i < tr.m; i++)
+				{
+					tr.mat[i] = tr.mat[i] + lastT;
+					pr_x.mat[i] = pr_x.mat[i] + wayPointX[res];
+					pr_y.mat[i] = pr_y.mat[i] + wayPointY[res];
+					//fprintf (pFile, "%3.3f, ",pr_x.mat[i]);
+				}
+				//fprintf (pFile, "FIN %3.3f \n",0.000);
+				//fflush (pFile);
+
+				//fprintf (pFile, "CORRECTED Y REFERENCE %3.3f \n",0.000);
+				for (int i = 0; i < tr.m; i++)
+				{
+					//fprintf (pFile, "%3.3f, ",pr_y.mat[i]);
+				}
+				//fprintf (pFile, "FIN %3.3f \n",0.000);
+				//fflush (pFile);
+			}
+		}
+
+		// % 1) PREDICT
+		// % Scheduled B matrix
+		zeros(&Sched);
+		Sched.mat[0] = sinfit(ukm1.mat[0], &sRoll);
+		Sched.mat[3] = sinfit(ukm1.mat[1], &sPitch);
+		multmat(&sysB, &Sched, &Bsch);
+		// % Nominal Model State Equation
+		multmat(&sysA, &x, &stEq1);
+		multmat(&disC, &xd, &stEq2);
+		multmat(&Bsch, &ukm1, &stEq3);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = stEq1.mat[i] + stEq2.mat[i] + stEq3.mat[i];
+		}
+		// % Disturbance Model State Equation
+		multmat(&disA, &xd, &dtEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = dtEq1.mat[i];
+		}
+		// % Output Equation
+		multmat(&sysC, &x, &m_y);
+
+		// % 2) CORRECT
+		// Observer Error
+		for(int i = 0; i < oErr.m; i++)
+		{
+			oErr.mat[i] = m_ym.mat[i] - m_y.mat[i];
+		}
+		// % Update Nominal Model States
+		multmat(&disD, &oErr, &suEq1);
+		for(int i = 0; i < x.m; i++)
+		{
+			x.mat[i] = x.mat[i] + suEq1.mat[i];
+		}
+		// % Update Disturbance Model States
+		multmat(&disB, &oErr, &duEq1);
+		for(int i = 0; i < xd.m; i++)
+		{
+			xd.mat[i] = xd.mat[i] + duEq1.mat[i];
+		}
+		// % Update Output
+		multmat(&sysC, &x, &m_y);
+
+		//fprintf (pFile, "XOutput MEAS = %6.6f, XRef = %6.6f. \n",m_ym.mat[0], wayPointX[res+1]);
+		//fprintf (pFile, "YOutput MEAS = %6.6f, YRef = %6.6f. \n",m_ym.mat[2], wayPointY[res+1]);
+		//fprintf (pFile, "XOutput OBS = %6.6f, XRef = %6.6f. \n",m_y.mat[0], wayPointX[res+1]);
+		//fprintf (pFile, "YOutput OBS = %6.6f, YRef = %6.6f. \n",m_y.mat[2], wayPointY[res+1]);
+		//fflush (pFile);
+
+		// % STATE FEEDBACK
+		// % 1) Compute Reference Vector
+		for ( int i = 0; i < N; i++ )
+		{
+			mytime.mat[i] = iTime + i*Ts;
+		}
+		interpola( &tr, &pr_x, &mytime, &rtmpx );
+		interpola( &tr, &pr_y, &mytime, &rtmpy );
+		for ( int i = 0; i < N; i++ )
+		{
+			ref.mat[2*i]     = rtmpx.mat[i];
+			ref.mat[(2*i)+1] = rtmpy.mat[i];
+		}
+		// % 2) Compute Unconstrained MPC Input
+		int filas    = Bsch.m;
+		int columnas = Bsch.n;
+		for ( int i = 0; i < N; i++ )
+		{
+			for ( int j = 0; j < columnas; j++ )
+			{
+				for ( int k = 0; k < filas; k++ )
+				{
+//					be.mat[i*(N*filas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+					be.mat[i*(N*filas*columnas+filas) + j*N*filas + k] = Bsch.mat[j*filas + k];
+				}
+			}
+		}
+		multmat(&pTheta, &Bsch, &ntheta);
+		multmat(&pGamma, &be, &ngamma);
+		// transpose of matrix ngamma
+		for (int i = 0; i < ngamma.m; i++) //stored in column major
+		{
+			for(int j = 0; j < ngamma.n; j++)
+			{
+				ngammat.mat[(ngamma.n)*(i)+j] = ngamma.mat[j*(ngamma.m)+i];
+			}
+		}
+		// G matrix
+		multmat(&pOmega, &ngamma, &gEq1);
+		multmat(&ngammat, &gEq1, &gEq2);
+		for (int i = 0; i < G.m*G.n; i++ )
+		{
+			G.mat[i] = 2.0*(pPsi.mat[i] + gEq2.mat[i]);
+		}
+		// F matrix
+		multmat(&ntheta, &ukm1, &fEq1);
+		multmat(&pJota, &xd, &fEq2);
+		multmat(&pPhi, &x, &fEq3);
+		for (int i = 0; i < fEq1.m*fEq1.n; i++ )
+		{
+			fEq1.mat[i] = fEq1.mat[i] + fEq2.mat[i] + fEq3.mat[i] - ref.mat[i];
+		}
+		multmat(&pOmega, &fEq1, &fEq4);
+		multmat(&ngammat, &fEq4, &F);
+		for ( int i = 0; i < F.m*F.n; i++ )
+		{
+			F.mat[i] = 2.0*F.mat[i];
+		}
+		// Solution
+//		pinv(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat);
+		pinvnew(&(G.m), &(G.n), G.mat, &mytol, Ginv.mat, work_inv, s_inv, u_inv, vt_inv, sfull, usfull, at, ainvt);
+		multmat(&Ginv, &F, &sol);
+		for ( int i = 0; i < sysB.n; i++ )
+		{
+			// Keep du in case we want to limit it
+			du.mat[i] = sol.mat[i];
+			ukm1.mat[i] = ukm1.mat[i] - du.mat[i];
+		}
+		// 3) Limit the Inputs
+		ukm1.mat[0] = min(ukm1.mat[0],1.0);
+		ukm1.mat[0] = max(ukm1.mat[0],-1.0);
+		ukm1.mat[1] = min(ukm1.mat[1],1.0);
+		ukm1.mat[1] = max(ukm1.mat[1],-1.0);
+		// % 4) Write Input
+		for ( int i = 0; i < sysB.n; i++ )
+		{
+			action[i] = ukm1.mat[i];
+		}
+		// Next internal time
+		iTime = iTime + Ts;
+
+		//fprintf (pFile, "Inputs Computed u1 = %3.3f, u2 = %3.3f \n",u[0],u[1]);
+		//fflush (pFile);
+
+		// Measure time
+		time(&t_end);
+		*seconds = difftime(t_end,t_start);
+	}
+
+}
+
 void zeros( mat *matrix )
 {
 	for (int i = 0; i < (matrix->m)*(matrix->n); i++)
@@ -1463,16 +2264,140 @@ void pinvnew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublerea
 
 void multmat( mat *A, mat *B, mat *C )
 {
-	char transa      = 'N';
-    char transb      = 'N';
-    doublereal alpha = 1.0;
-    doublereal beta  = 0.0;
+//	char transa      = 'N';
+//    char transb      = 'N';
+//    doublereal alpha = 1.0;
+//    doublereal beta  = 0.0;
+//
+//    dgemm_(&transa, &transb,
+//	  	   &A->m, &B->n, &A->n, &alpha, A->mat, &A->m,
+//		   B->mat, &A->n, &beta, C->mat, &A->m);
 
-    dgemm_(&transa, &transb,
-	  	   &A->m, &B->n, &A->n, &alpha, A->mat, &A->m,
-		   B->mat, &A->n, &beta, C->mat, &A->m);
+	/*           Form  C := A*B */
+
+if (C->m > C->n) // size(A) > size(B) -> A might contain more zeros
+{
+	for (int j = 0; j < A->m; j++) //m
+		{
+			for (int i = 0; i < C->n; i++)
+			{
+				C->mat[(i * C->m) + j] = 0.0; // Clean column first
+			}
+			for (int l = 0; l < A->n; l++) //k
+			{
+				if (A->mat[(l * A->m) + j] != 0.0)
+				{
+					for (int i = 0; i < B->n; i++) //m
+					{
+						C->mat[(i * C->m) + j] += B->mat[(i * B->m) + l] * A->mat[(l * A->m) + j];
+					}
+				}
+			}
+		}
+}
+else
+{
+		for (int j = 0; j < B->n; j++) //n
+		{
+			for (int i = 0; i < C->m; i++)
+			{
+				C->mat[i + (j * C->m)] = 0.0; // Clean column first
+			}
+			for (int l = 0; l < A->n; l++) //k
+			{
+				if (B->mat[l + j * B->m] != 0.0)
+				{
+					for (int i = 0; i < A->m; i++) //m
+					{
+						C->mat[i + (j * C->m)] += A->mat[i + (l * A->m)] * B->mat[l + (j * B->m)];
+					}
+				}
+			}
+		}
 }
 
+}
+/*
+void myls( mat *R, mat *F, mat*x )
+{
+	// % Initialize variables
+	int n = R->n;
+	mat c;
+	c.m = n;
+	c.n = 1;
+	c.mat  = (doublereal*) calloc(c.m*c.n, sizeof(doublereal));
+	mat d;
+	d.m = n;
+	d.n = 1;
+	d.mat  = (doublereal*) calloc(d.m*d.n, sizeof(doublereal));
+	mat Q;
+	Q.m = n;
+	Q.n = n;
+	Q.mat  = (doublereal*) calloc(Q.m*Q.n, sizeof(doublereal));
+
+	doublereal scale;
+	doublereal sum;
+	doublereal sigma;
+	doublereal tau;
+
+	// % Perform Householder QR decomposition
+	for (int k = 0; k < n-1; k++)
+	{
+		scale = 0.0;
+		for (int i = k; i < n; i++)
+		{
+			scale = max(scale,abs(R->mat[k*(R->m)+i])); // abs function correct?
+		}
+		if (scale == 0.0)
+		{
+			c.mat[k] = 0.0;
+			d.mat[k] = 0.0;
+		}
+		else
+		{
+			for (int i = k; i < n; i++)
+			{
+				R->mat[k*(R->m)+i] = R->mat[k*(R->m)+i]/scale;
+			}
+			sum = 0.0;
+			for (int i = k; i < n; i++)
+			{
+				sum = sum + R->mat[k*(R->m)+i] * R->mat[k*(R->m)+i];
+			}
+			sigma = sqrt(sum) * (R->mat[k*(R->m)+k])/abs(R->mat[k*(R->m)+k]); // abs function correct?
+			R->mat[k*(R->m)+k] = R->mat[k*(R->m)+k] + sigma;
+			c.mat[k] = sigma * R->mat[k*(R->m)+k];
+			d.mat[k] = -1.0 * scale * sigma;
+			for (int j = k+1; j < n; j++)
+			{
+				sum = 0.0;
+				for (int i = k; i < n; i++)
+				{
+					sum = sum + R->mat[k*(R->m)+i] * R->mat[j*(R->m)+i];
+				}
+				tau = sum / c.mat[k];
+				for (int i = k; i < n; i++)
+				{
+					R->mat[j*(R->m)+i] = R->mat[j*(R->m)+i] - tau * R->mat[k*(R->m)+i];
+				}
+			}
+		}
+	}
+	d.mat[n-1] = R->mat[(n-1)*(R->m)+(n-1)];
+
+	// % Construct Q and erase temporary data in R
+	// % TODO: Could inegrate with loop in next step
+	for (int i = 0; i < n; i++)
+	{
+		Q.mat[i*(Q.m)+i] = 1.0;
+	}
+	for (int j = )
+
+	free(c.mat);
+	free(d.mat);
+	free(Q.mat);
+}
+*/
 doublereal sinfit( doublereal u, mat *fit_params )
 {
 	int i = 0;

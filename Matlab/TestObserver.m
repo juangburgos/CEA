@@ -150,5 +150,5 @@ subplot(4,1,4),plot(experiment.time,y_c(4,:),'r--');
 
 clc
 
-disp(['Matlab Program: ',num2str(mat_t)]);
-disp(['C Program: ',num2str(cprg_t)]);
+disp(['Matlab Program: ',num2str(100*mat_t),' %']);
+disp(['C Program: ',num2str(100*cprg_t),' %']);

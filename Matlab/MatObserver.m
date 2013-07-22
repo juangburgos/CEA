@@ -95,7 +95,7 @@ if cStatus == 0
     % 2) CORRECT
     % Update Nominal Model States
     x       = x + disD*(ym-y);
-    % Update Nominal Model States
+    % Update Disturbance Model States
     xd      = xd + disB*(ym-y);
     % Update Output
     y       = sysC * x;
