@@ -1,4 +1,4 @@
-function [y,action] = MatController(position,velocity,numAxis,wayPointX, ...
+function action = MatController(position,velocity,numAxis,wayPointX, ...
             wayPointY,numWaypoints,actualWayPoint,param,numParam)
 % void __cdecl Control (
 %
@@ -146,7 +146,7 @@ if cStatus == 0
     res     = 0; % This index shound be 0 in C
     lastT   = 0;
     % Initial Conditions
-    x     = mypinv(sysC)*ym;
+    x     = pinv(sysC)*ym;
     xd    = zeros(size(Aj,1),1);
     ukm1  = zeros(size(Bp,2),1);
     % <----------- START CONTROL ----------------------------------------
@@ -219,7 +219,7 @@ if cStatus == 0
     ngamma = pGamma*be;    % Warning, do not overwrite pGamma
     G   = 2*(pPsi+ngamma'*pOmega*ngamma);
     F   = 2*ngamma'*pOmega*(pPhi*x+pJota*xd+ntheta*ukm1-ref);
-    sol = myls(G,F);
+    sol = G\F;
     du  = sol(1:size(Bsch,2),1);
     ukm1   = ukm1 - du;
     % 3) Limit the Inputs
@@ -267,7 +267,11 @@ elseif cStatus == 1
             tr   = lastT + tr;
             pr_x = wayPointX(res+1) + pr_x;
             pr_y = wayPointY(res+1) + pr_y;
-
+        else
+            cStatus   = -1;
+            action(1) = 0;
+            action(2) = 0;
+            return
         end
     end
     % OBSERVER
@@ -313,10 +317,8 @@ elseif cStatus == 1
     ngamma = pGamma*be;    % Warning, do not overwrite pGamma
     G   = 2*(pPsi+ngamma'*pOmega*ngamma);
     F   = 2*ngamma'*pOmega*(pPhi*x+pJota*xd+ntheta*ukm1-ref);
-    % Least Squares Problem: G*u = F -> u = G/F -> G^(-1)*F
-%     sol = pinv(G)*F;
-    sol = myls(G,F); 
-%     sol = G\F;
+    % Least Squares Problem: G*u = F -> u = G/F -> G^(-1)*F 
+    sol = G\F;
     du  = sol(1:size(Bsch,2),1);
     ukm1   = ukm1 - du;
     % 3) Limit the Inputs
@@ -329,6 +331,10 @@ elseif cStatus == 1
     % Next internal time
     iTime   = iTime + Ts;
     % <----------- END CONTROL ----------------------------------------
+else
+    action(1) = 0;
+    action(2) = 0;
+    return
 end
 
 

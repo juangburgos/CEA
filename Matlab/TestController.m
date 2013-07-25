@@ -10,8 +10,9 @@ load('model.mat');
 load('fitresultDIST.mat');
 load('fitresultvelDISTURBANCES.mat');
 Ts = experiment.time(2)-experiment.time(1);
-ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
+% ruta=[12 0;12 5;7 -5;-1 4;-6 -5;-2 0];
 % ruta=[12 0;12 5;7 -5;-1 4;-1 4;-2 0];
+load('ruta_Eval.mat');
 
 vymax    = 1.5;                     % max 2.1 [m/s] ~1.5 (dont move)
 aymax    = 0.55;                    % ~0.55 (dont move)
@@ -26,9 +27,12 @@ radio = 0.05;
 rutaini  = [0,0];
 ruta     = [rutaini;ruta];
 
+% Simulate extra time
+extrat   = 200;
+
 %% Init Simulation Parameters
 % Storage Size 120s
-largesize = 120/Ts;
+largesize = round(200/Ts);
 
 time = 0:Ts:Ts*(largesize-1)-Ts;
 
@@ -49,7 +53,6 @@ noise      = namp.*rand(size(dsys.c,1),largesize)-(namp/2);
 
 % Init Simulation Vectors
 u    = zeros(size(dsys.b,2),largesize); % Input
-y    = zeros(size(dsys.c,1),largesize); % Observer Output
 xp   = zeros(size(dsys.a,1),largesize); % Plant State
 yp   = zeros(size(dsys.c,1),largesize); % Plant Output
 
@@ -57,6 +60,8 @@ yp   = zeros(size(dsys.c,1),largesize); % Plant Output
 meast_mat   = 0; % Real Time
 
 t = 2;
+extratime = 0;
+res = 0;
 while 1
     
     Bsch = dsys.b*[feval(fitresultROLL_k,u(1,t-1)) , 0; ...
@@ -84,15 +89,22 @@ while 1
     numParam        = length(param);
     
     tic;
-    [y(:,t),u(:,t)] = MatController(position,velocity,numAxis,wayPointX, ...
+    u(:,t) = MatController(position,velocity,numAxis,wayPointX, ...
             wayPointY,numWaypoints,actualWayPoint,param,numParam);      
     meast_mat = meast_mat + toc;
     
     clc
     disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
     
-    if norm([yp(1,t),yp(3,t)]-ruta(end,:)) < (radio)
-        break;
+    if res+2 <= length(ruta)
+        if norm([yp(1,t),yp(3,t)]-ruta(res+2,:)) < (radio)
+            res = res + 1;
+        end
+    else
+        if extratime == extrat
+            break;
+        end
+        extratime = extratime + 1;
     end
     
     t = t + 1;
@@ -104,30 +116,21 @@ trobmat = meast_mat/(Ts*(t-1));
 
 % Cut Storage size
 u    = u(:,1:t-1); % Input
-y    = y(:,1:t-1); % Observer Output
 xp   = xp(:,1:t-1); % Plant State
 yp   = yp(:,1:t-1); % Plant Output
 time = time(:,1:t-1);
 
 figure();
-subplot(6,1,1),plot(time,y(1,:),'b-');
-hold on;
 subplot(6,1,1),plot(time,yp(1,:),'r--');
 axis([time(1) time(end) 0.9*min(yp(1,:)) 1.1*max(yp(1,:))]);
-legend('Observer Output','Plant Output');
+legend('Plant Output');
 
-subplot(6,1,2),plot(time,y(2,:),'b-');
-hold on;
 subplot(6,1,2),plot(time,yp(2,:),'r--');
 axis([time(1) time(end) 0.9*min(yp(2,:)) 1.1*max(yp(2,:))]);
 
-subplot(6,1,3),plot(time,y(3,:),'b-');
-hold on;
 subplot(6,1,3),plot(time,yp(3,:),'r--');
 axis([time(1) time(end) 0.9*min(yp(3,:)) 1.1*max(yp(3,:))]);
 
-subplot(6,1,4),plot(time,y(4,:),'b-');
-hold on;
 subplot(6,1,4),plot(time,yp(4,:),'r--');
 axis([time(1) time(end) 0.9*min(yp(4,:)) 1.1*max(yp(4,:))]);
 
@@ -147,116 +150,125 @@ disp(['Unconstrained MPC Matlab: ',num2str(100*trobmat),' %']);
 
 %% Unconstrained MPC in C
 
-% time = 0:Ts:Ts*(largesize-1)-Ts;
-% 
-% % Load DLL
-% dllname    = 'libCEA.dll';
-% headername = 'mydll.h';
-% funcon    = 'Control';
-% if ~libisloaded( 'MYDLL' ) 
-%     loadlibrary( dllname, headername, 'alias', 'MYDLL' );      
-% end
-% 
-% % Init Simulation Vectors
-% u_c    = zeros(size(dsys.b,2),largesize); % Input
-% xp_c   = zeros(size(dsys.a,1),largesize); % Plant State
-% yp_c   = zeros(size(dsys.c,1),largesize); % Plant Output
-% 
-% % Measure Computational Time
-% meast_c   = 0; % Real Time
-% 
-% t = 2;
-% while 1
-%     
-%     Bsch = dsys.b*[feval(fitresultROLL_k,u_c(1,t-1)) , 0; ...
-%                 0, feval(fitresultPITCH_k,u_c(2,t-1))];
-%                
-%     % ************** UPDATE PLANT SIMULATION ****************
-%     % State Equation
-%     xp_c(:,t) = dsys.a * xp_c(:,t-1) + Bsch * u_c(:,t-1); 
-%     % Output Equation
-%     yp_c(:,t)   = dsys.c * xp_c(:,t);
-%     % Additive Disturbance
-%     yp_c(:,t)   = yp_c(:,t) + dist(:,t);
-%     % Measurement Noise
-%     yp_c(:,t)   = yp_c(:,t) + noise(:,t);
-%     
-%     % ************** CONTROLLER ******************************
-%     position        = [yp(1,t),yp(3,t),0];
-%     velocity        = [yp(2,t),yp(4,t),0];
-%     numAxis         = 3;
-%     wayPointX       = ruta(:,1);
-%     wayPointY       = ruta(:,2);
-%     numWaypoints    = size(ruta,1);
-%     actualWayPoint  = [yp(1,t),yp(3,t)];
-%     param           = [vymax; aymax; jymax; vxmax; axmax; jxmax];
-%     numParam        = length(param);
-%     % void __cdecl Control (double *position, double *velocity, 
-%     %              double *action, int numAxis, double *wayPointX, 
-%     %              double *wayPointY, int numWaypoints, double *actualWayPoint, 
-%     %              double *param, int numParam, double *seconds)
-%     % Controller (Call DLL)
-%     p_position       = libpointer('doublePtr',position);
-%     p_velocity       = libpointer('doublePtr',velocity);
-%     p_action         = libpointer('doublePtr',zeros(2,1));
-%     p_wayPointX      = libpointer('doublePtr',wayPointX);
-%     p_wayPointY      = libpointer('doublePtr',wayPointY);
-%     p_actualWayPoint = libpointer('doublePtr',actualWayPoint);
-%     p_param          = libpointer('doublePtr',param);
-%     p_time    = libpointer('doublePtr',0.0);
-%     calllib( 'MYDLL', funcon, p_position, p_velocity, p_action, numAxis, ...
-%                               p_wayPointX, p_wayPointY, numWaypoints, ...
-%                               p_actualWayPoint, p_param, numParam, p_time);
-%     % Measure Computational Time
-%     meast_c  = meast_c + get(p_time,'Value');
-%     u_c(:,t) = get(p_action,'Value');
-%     
-%     clc
-%     disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
-%     
-%     if norm([yp_c(1,t),yp_c(3,t)]-ruta(end,:)) < (radio)
-%         break;
-%     end
-%     
-%     t = t + 1;
-%     
-% end
-% 
-% trobc = meast_c/(Ts*(t-1));
-% 
-% % Unload DLL
-% unloadlibrary('MYDLL');
-% 
-% % Cut Storage size
-% u_c    = u_c(:,1:t-1); % Input
-% xp_c   = xp_c(:,1:t-1); % Plant State
-% yp_c   = yp_c(:,1:t-1); % Plant Output
-% time   = time(:,1:t-1);
-% 
-% figure();
-% subplot(6,1,1),plot(time,yp_c(1,:),'r--');
-% axis([time(1) time(end) 0.9*min(yp_c(1,:)) 1.1*max(yp_c(1,:))]);
-% 
-% subplot(6,1,2),plot(time,yp_c(2,:),'r--');
-% axis([time(1) time(end) 0.9*min(yp_c(2,:)) 1.1*max(yp_c(2,:))]);
-% 
-% subplot(6,1,3),plot(time,yp_c(3,:),'r--');
-% axis([time(1) time(end) 0.9*min(yp_c(3,:)) 1.1*max(yp_c(3,:))]);
-% 
-% subplot(6,1,4),plot(time,yp_c(4,:),'r--');
-% axis([time(1) time(end) 0.9*min(yp_c(4,:)) 1.1*max(yp_c(4,:))]);
-% 
-% subplot(6,1,5),plot(time,u_c(1,:),'b-');
-% axis([time(1) time(end) -1 1]);
-% 
-% subplot(6,1,6),plot(time,u_c(2,:),'b-');
-% axis([time(1) time(end) -1 1]);
-% 
-% figure();
-% plot(ruta(:,1),ruta(:,2),'r-');
-% hold on;
-% plot(yp_c(1,:),yp_c(3,:),'b-');
-% 
-% clc
+time = 0:Ts:Ts*(largesize-1)-Ts;
+
+% Load DLL
+dllname    = 'libCEA.dll';
+headername = 'mydll.h';
+funcon    = 'Control';
+if ~libisloaded( 'MYDLL' ) 
+    loadlibrary( dllname, headername, 'alias', 'MYDLL' );      
+end
+
+% Init Simulation Vectors
+u_c    = zeros(size(dsys.b,2),largesize); % Input
+xp_c   = zeros(size(dsys.a,1),largesize); % Plant State
+yp_c   = zeros(size(dsys.c,1),largesize); % Plant Output
+
+% Measure Computational Time
+meast_c   = 0; % Real Time
+
+t = 2;
+extratime = 0;
+res = 0;
+while 1
+    
+    Bsch = dsys.b*[feval(fitresultROLL_k,u_c(1,t-1)) , 0; ...
+                0, feval(fitresultPITCH_k,u_c(2,t-1))];
+               
+    % ************** UPDATE PLANT SIMULATION ****************
+    % State Equation
+    xp_c(:,t) = dsys.a * xp_c(:,t-1) + Bsch * u_c(:,t-1); 
+    % Output Equation
+    yp_c(:,t)   = dsys.c * xp_c(:,t);
+    % Additive Disturbance
+    yp_c(:,t)   = yp_c(:,t) + dist(:,t);
+    % Measurement Noise
+    yp_c(:,t)   = yp_c(:,t) + noise(:,t);
+    
+    % ************** CONTROLLER ******************************
+    position        = [yp_c(1,t),yp_c(3,t),0];
+    velocity        = [yp_c(2,t),yp_c(4,t),0];
+    numAxis         = 3;
+    wayPointX       = ruta(:,1);
+    wayPointY       = ruta(:,2);
+    numWaypoints    = size(ruta,1);
+    actualWayPoint  = [yp_c(1,t),yp_c(3,t)];
+    param           = [vymax; aymax; jymax; vxmax; axmax; jxmax];
+    numParam        = length(param);
+    % void __cdecl Control (double *position, double *velocity, 
+    %              double *action, int numAxis, double *wayPointX, 
+    %              double *wayPointY, int numWaypoints, double *actualWayPoint, 
+    %              double *param, int numParam, double *seconds)
+    % Controller (Call DLL)
+    p_position       = libpointer('doublePtr',position);
+    p_velocity       = libpointer('doublePtr',velocity);
+    p_action         = libpointer('doublePtr',zeros(2,1));
+    p_wayPointX      = libpointer('doublePtr',wayPointX);
+    p_wayPointY      = libpointer('doublePtr',wayPointY);
+    p_actualWayPoint = libpointer('doublePtr',actualWayPoint);
+    p_param          = libpointer('doublePtr',param);
+    tic;
+    calllib( 'MYDLL', funcon, p_position, p_velocity, p_action, numAxis, ...
+                              p_wayPointX, p_wayPointY, numWaypoints, ...
+                              p_actualWayPoint, p_param, numParam);
+    % Measure Computational Time
+    meast_c  = meast_c + toc;
+    u_c(:,t) = get(p_action,'Value');
+    
+    clc
+    disp(['Unconstrained MPC Progress: ',num2str(100*(t/largesize)),' %']);
+    
+    if res+2 <= length(ruta)
+        if norm([yp_c(1,t),yp_c(3,t)]-ruta(res+2,:)) < (radio)
+            res = res + 1;
+        end
+    else       
+        if extratime == extrat
+            break;
+        end
+        extratime = extratime + 1;
+    end
+    
+    t = t + 1;
+    
+end
+
+trobc = meast_c/(Ts*(t-1));
+
+% Unload DLL
+unloadlibrary('MYDLL');
+
+% Cut Storage size
+u_c    = u_c(:,1:t-1); % Input
+xp_c   = xp_c(:,1:t-1); % Plant State
+yp_c   = yp_c(:,1:t-1); % Plant Output
+time   = time(:,1:t-1);
+
+figure();
+subplot(6,1,1),plot(time,yp_c(1,:),'r--');
+axis([time(1) time(end) 0.9*min(yp_c(1,:)) 1.1*max(yp_c(1,:))]);
+
+subplot(6,1,2),plot(time,yp_c(2,:),'r--');
+axis([time(1) time(end) 0.9*min(yp_c(2,:)) 1.1*max(yp_c(2,:))]);
+
+subplot(6,1,3),plot(time,yp_c(3,:),'r--');
+axis([time(1) time(end) 0.9*min(yp_c(3,:)) 1.1*max(yp_c(3,:))]);
+
+subplot(6,1,4),plot(time,yp_c(4,:),'r--');
+axis([time(1) time(end) 0.9*min(yp_c(4,:)) 1.1*max(yp_c(4,:))]);
+
+subplot(6,1,5),plot(time,u_c(1,:),'b-');
+axis([time(1) time(end) -1 1]);
+
+subplot(6,1,6),plot(time,u_c(2,:),'b-');
+axis([time(1) time(end) -1 1]);
+
+figure();
+plot(ruta(:,1),ruta(:,2),'r-');
+hold on;
+plot(yp_c(1,:),yp_c(3,:),'b-');
+
+clc
 % disp(['Unconstrained MPC Matlab: ',num2str(100*trobmat),' %']);
-% disp(['Unconstrained MPC C: ',num2str(100*trobc),' %']);
+disp(['Unconstrained MPC C: ',num2str(100*trobc),' %']);
