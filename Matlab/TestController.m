@@ -270,5 +270,5 @@ hold on;
 plot(yp_c(1,:),yp_c(3,:),'b-');
 
 clc
-% disp(['Unconstrained MPC Matlab: ',num2str(100*trobmat),' %']);
+disp(['Unconstrained MPC Matlab: ',num2str(100*trobmat),' %']);
 disp(['Unconstrained MPC C: ',num2str(100*trobc),' %']);

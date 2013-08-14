@@ -31,7 +31,6 @@ typedef struct mat{
 }mat;
 
 // Matrix Functions
-void zeros( mat *matrix );
 void multmat( mat *A, mat *B, mat*C );
 // Least Squares Function
 void myls( mat *R, mat *F);
@@ -49,245 +48,6 @@ void interpola ( mat *tr_x, mat *pr_x, mat *my_tr, mat *my_pr );
 doublereal Ts = 0.06;
 int N  = 50;
 doublereal radio = 0.05;
-
-extern "C" void __declspec(dllexport) __cdecl matobserver(doublereal *u, doublereal *ym, doublereal *y)
-{
-	// % Controller Status Variable (Init = 0, Run = 1)
-	static int cStatus = 0;
-	// % Internal System Model State
-	static mat x;
-	// % Internal System Model A Matrix
-	static mat sysA;
-	// % Internal System Model B Matrix
-	static mat sysB;
-	// % Internal System Model C Matrix
-	static mat sysC;
-	// % Internal Disturbance Model State
-	static mat xd;
-	//% Internal Disturbance Model A Matrix
-	static mat disA;
-	// % Internal Disturbance Model B Matrix
-	static mat disB;
-	// % Internal Disturbance Model C Matrix
-	static mat disC;
-	// % Internal Disturbance Model D Matrix
-	static mat disD;
-	// % Roll Scheduling Parameters
-	static mat sRoll;
-	// % Pitch Scheduling Parameters
-	static mat sPitch;
-
-	// Input Input in Matrix Form
-	static mat m_u;
-	// Measured Output in Matrix Form
-	static mat m_ym;
-	// Estimated Output in Matrix Form
-	static mat m_y;
-
-	// Temporal Matrices
-	static mat sysCinv;
-	static mat Sched;
-	static mat Bsch;
-	static mat stEq1;
-	static mat stEq2;
-	static mat stEq3;
-	static mat oErr;
-	static mat dtEq1;
-	static mat suEq1;
-	static mat duEq1;
-
-	// % If Observer Initialization
-	if (cStatus == 0)
-	{
-		// % Initlialize Parameters and States
-		sqlite3_initialize();
-		sqlite3 *db;
-		// Open Database
-		int error = sqlite3_open_v2( "test.db", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL );
-		if (error)
-		{
-			sqlite3_close(db);
-			system("pause");
-		}
-		readmatsql(db, "Ap", &sysA);
-		readmatsql(db, "Bp", &sysB);
-		readmatsql(db, "Cp", &sysC);
-		readmatsql(db, "Aj", &disA);
-		readmatsql(db, "Bj", &disB);
-		readmatsql(db, "Cj", &disC);
-		readmatsql(db, "Dj", &disD);
-		readmatsql(db, "rollparams", &sRoll);
-		readmatsql(db, "pitchparams", &sPitch);
-		// Close Database
-		sqlite3_close(db);
-		// Init Inputs, States and Outputs in Matrix Form
-		m_u.m    = sysB.n;
-		m_u.n    = 1;
-		//m_u.mat  = (doublereal*) calloc(m_u.m*m_u.n, sizeof(doublereal));
-		m_ym.m   = sysC.m;
-		m_ym.n   = 1;
-		//m_ym.mat = (doublereal*) calloc(m_ym.m*m_ym.n, sizeof(doublereal));
-		m_y.m    = sysC.m;
-		m_y.n    = 1;
-		//m_y.mat  = (doublereal*) calloc(m_y.m*m_y.n, sizeof(doublereal));
-		x.m      = sysA.m;
-		x.n      = 1;
-		x.mat    = (doublereal*) calloc(x.m*x.n, sizeof(doublereal));
-		xd.m     = disA.m;
-		xd.n     = 1;
-		xd.mat   = (doublereal*) calloc(xd.m*xd.n, sizeof(doublereal));
-		// Init Temporal Matrices
-		sysCinv.m   = sysC.n;
-		sysCinv.n   = sysC.m;
-		sysCinv.mat = (doublereal*) calloc(sysCinv.m*sysCinv.n, sizeof(doublereal));
-		Bsch.m      = sysB.m;
-		Bsch.n      = sysB.n;
-		Bsch.mat    = (doublereal*) calloc(Bsch.m*Bsch.n, sizeof(doublereal));
-		Sched.m     = sysB.n;
-		Sched.n     = sysB.n;
-		Sched.mat   = (doublereal*) calloc(Sched.m*Sched.n, sizeof(doublereal));
-		stEq1.m     = sysA.m;
-		stEq1.n     = x.n;
-		stEq1.mat   = (doublereal*) calloc(stEq1.m*stEq1.n, sizeof(doublereal));
-		stEq2.m     = disC.m;
-		stEq2.n     = xd.n;
-		stEq2.mat   = (doublereal*) calloc(stEq2.m*stEq2.n, sizeof(doublereal));
-		stEq3.m     = Bsch.m;
-		stEq3.n     = m_u.n;
-		stEq3.mat   = (doublereal*) calloc(stEq3.m*stEq3.n, sizeof(doublereal));
-		oErr.m      = m_y.m;
-		oErr.n      = m_y.n;
-		oErr.mat    = (doublereal*) calloc(oErr.m*oErr.n, sizeof(doublereal));
-		dtEq1.m     = disA.m;
-		dtEq1.n     = xd.n;
-		dtEq1.mat   = (doublereal*) calloc(dtEq1.m*dtEq1.n, sizeof(doublereal));
-		suEq1.m     = disD.m;
-		suEq1.n     = oErr.n;
-		suEq1.mat   = (doublereal*) calloc(suEq1.m*suEq1.n, sizeof(doublereal));
-		duEq1.m     = disB.m;
-		duEq1.n     = oErr.n;
-		duEq1.mat   = (doublereal*) calloc(duEq1.m*duEq1.n, sizeof(doublereal));
-		// 0) Input/Output Pointers
-		m_u.mat  = u;
-		m_ym.mat = ym;
-		m_y.mat  = y;
-		// % Initial Conditions
-		// Initial Plant States
-		//   Calculate C inverse
-//		pinv(&(sysC.m), &(sysC.n), sysC.mat, &mytol, sysCinv.mat);
-//		//   Multiply x = Cinv * ym
-//		multmat(&sysCinv, &m_ym, &x);
-//		//   Init xd = zeros
-//		zeros(&xd);
-		// % 1) PREDICT
-		// % Scheduled B matrix
-		zeros(&Sched);
-		Sched.mat[0] = sinfit(m_u.mat[0], &sRoll);
-		Sched.mat[3] = sinfit(m_u.mat[1], &sPitch);
-		multmat(&sysB, &Sched, &Bsch);
-		// % Nominal Model State Equation
-		multmat(&sysA, &x, &stEq1);
-		multmat(&disC, &xd, &stEq2);
-		multmat(&Bsch, &m_u, &stEq3);
-		for(int i = 0; i < x.m; i++)
-		{
-			x.mat[i] = stEq1.mat[i] + stEq2.mat[i] + stEq3.mat[i];
-		}
-		// % Disturbance Model State Equation
-		multmat(&disA, &xd, &dtEq1);
-		for(int i = 0; i < xd.m; i++)
-		{
-			xd.mat[i] = dtEq1.mat[i];
-		}
-//		//fprintf (pFile, "Step 1 successfully %d \n",5);
-//		//fflush (pFile);
-		// % Output Equation
-		multmat(&sysC, &x, &m_y);
-		// % 2) CORRECT
-		// Observer Error
-		for(int i = 0; i < oErr.m; i++)
-		{
-			oErr.mat[i] = m_ym.mat[i] - m_y.mat[i];
-		}
-		// % Update Nominal Model States
-		multmat(&disD, &oErr, &suEq1);
-		for(int i = 0; i < x.m; i++)
-		{
-			x.mat[i] = x.mat[i] + suEq1.mat[i];
-		}
-		// % Update Disturbance Model States
-		multmat(&disB, &oErr, &duEq1);
-		for(int i = 0; i < xd.m; i++)
-		{
-			xd.mat[i] = xd.mat[i] + duEq1.mat[i];
-		}
-		// % Update Output
-		multmat(&sysC, &x, &m_y);
-//		//fprintf (pFile, "Step 2 successfully %d \n",6);
-//		//fflush (pFile);
-		// % Initialization Finished
-		cStatus = 1;
-
-	}
-	else
-	{
-//		myCount++;
-//		//fprintf (pFile, "RUN %d \n",0);
-//		//fflush (pFile);
-		// 0) Input/Output Pointers
-		m_u.mat  = u;
-		m_ym.mat = ym;
-		m_y.mat  = y;
-		// % 1) PREDICT
-		// % Scheduled B matrix
-		zeros(&Sched);
-		Sched.mat[0] = sinfit(m_u.mat[0], &sRoll);
-		Sched.mat[3] = sinfit(m_u.mat[1], &sPitch);
-		multmat(&sysB, &Sched, &Bsch);
-		// % Nominal Model State Equation
-		multmat(&sysA, &x, &stEq1);
-		multmat(&disC, &xd, &stEq2);
-		multmat(&Bsch, &m_u, &stEq3);
-		for(int i = 0; i < x.m; i++)
-		{
-			x.mat[i] = stEq1.mat[i] + stEq2.mat[i] + stEq3.mat[i];
-		}
-		// % Disturbance Model State Equation
-		multmat(&disA, &xd, &dtEq1);
-		for(int i = 0; i < xd.m; i++)
-		{
-			xd.mat[i] = dtEq1.mat[i];
-		}
-		// % Output Equation
-		multmat(&sysC, &x, &m_y);
-//		//fprintf (pFile, "Step 1 successfully %6.6f \n",m_y.mat[1]);
-//		//fflush (pFile);
-		// % 2) CORRECT
-		// Observer Error
-		for(int i = 0; i < oErr.m; i++)
-		{
-			oErr.mat[i] = m_ym.mat[i] - m_y.mat[i];
-		}
-		// % Update Nominal Model States
-		multmat(&disD, &oErr, &suEq1);
-		for(int i = 0; i < x.m; i++)
-		{
-			x.mat[i] = x.mat[i] + suEq1.mat[i];
-		}
-		// % Update Disturbance Model States
-		multmat(&disB, &oErr, &duEq1);
-		for(int i = 0; i < xd.m; i++)
-		{
-			xd.mat[i] = xd.mat[i] + duEq1.mat[i];
-		}
-		// % Update Output
-		multmat(&sysC, &x, &m_y);
-//		//fprintf (pFile, "Step 2 successfully %6.6f \n",m_y.mat[1]);
-//		//fprintf (pFile, "Finished Round %d \n",myCount);
-//		//fflush (pFile);
-	}
-
-}
 
 extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *velocity, double *action, int numAxis, double *wayPointX, double *wayPointY, int numWaypoints, double *actualWayPoint, double *param, int numParam)
 {
@@ -397,6 +157,7 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		if (error)
 		{
 			sqlite3_close(db);
+			puts("Error opening test.db");
 			system("pause");
 		}
 		readmatsql(db, "Ap", &sysA);
@@ -604,7 +365,6 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 		// % 1) PREDICT
 		// % Scheduled B matrix
-		zeros(&Sched);
 		Sched.mat[0] = sinfit(ukm1.mat[0], &sRoll);
 		Sched.mat[3] = sinfit(ukm1.mat[1], &sPitch);
 		multmat(&sysB, &Sched, &Bsch);
@@ -863,7 +623,6 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		m_ym.mat[3] = velocity[1];
 		// % 1) PREDICT
 		// % Scheduled B matrix
-		zeros(&Sched);
 		Sched.mat[0] = sinfit(ukm1.mat[0], &sRoll);
 		Sched.mat[3] = sinfit(ukm1.mat[1], &sPitch);
 		multmat(&sysB, &Sched, &Bsch);
@@ -993,14 +752,6 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 
 }
 
-void zeros( mat *matrix )
-{
-	for (int i = 0; i < (matrix->m)*(matrix->n); i++)
-	    {
-			matrix->mat[i] = 0.0;
-	    }
-}
-
 void readmatsql( sqlite3 *db, char *matname, mat *matrix )
 {
 	// Read Matrix Sizes from 'info' table
@@ -1051,6 +802,8 @@ void readmatsql( sqlite3 *db, char *matname, mat *matrix )
 		i = i + 1;
 	}
 	sqlite3_finalize(res2);
+
+	// TODO: free query1 and query2 ?
 
 }
 
@@ -1124,46 +877,6 @@ void monpennew(integer *m, integer *n, doublereal *a, doublereal *mytol, doubler
 //    free (usfull);
 }
 
-void pinvnew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainv,
-		doublereal *work, doublereal *s, doublereal *u, doublereal *vt, doublereal *sfull, doublereal *usfull, doublereal *at, doublereal *ainvt)
-{
-	  // moore–penrose pseudoinverse
-	  if (*n > *m)
-	  {
-		  // allocate at matrix
-//		  doublereal *at = (doublereal*) calloc((*n)*(*m), sizeof(doublereal));
-		  // transpose of matrix a
-		  for (int i = 0; i < *m; i++) //stored in column major
-		  {
-			  for(int j = 0; j < *n; j++)
-			  {
-				  at[(*n)*(i)+j] = a[j*(*m)+i];
-			  }
-		  }
-		  // apply same algorithm to a^t and transpose the result
-		  monpennew(n,m,at,mytol,ainv,work,s,u,vt,sfull,usfull);
-		  // free at matrix
-//		  free (at);
-	  }
-	  else
-	  {
-		  // allocate ainvt matrix
-//		  doublereal *ainvt = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
-		  // apply normal algorithm to a
-		  monpennew(m,n,a,mytol,ainvt,work,s,u,vt,sfull,usfull);
-		  // transpose of matrix ainvt
-		  for (int i = 0; i < *m; i++) //stored in column major
-		  {
-			  for(int j = 0; j < *n; j++)
-			  {
-				  ainv[(*n)*(i)+j] = ainvt[j*(*m)+i];
-			  }
-		  }
-		  // free ainvt matrix
-//		  free (ainvt);
-	  }
-}
-
 void multmat( mat *A, mat *B, mat *C )
 {
 	char transa      = 'N';
@@ -1203,7 +916,7 @@ void multmat( mat *A, mat *B, mat *C )
 //		{
 //			for (int i = 0; i < C->m; i++)
 //			{
-//				C->mat[i + (j * C->m)] = 0.0; // Clean column first
+//				C->mat[i + (j * C->m)] = 0.0; // Clean row first
 //			}
 //			for (int l = 0; l < A->n; l++) //k
 //			{
@@ -1256,7 +969,6 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	t.m   = 1;
 	t.n   = 3;
 	t.mat = (doublereal*) calloc((t.m)*(t.n), sizeof(doublereal));
-	zeros(&t);
 	mat tconst;
 	tconst.m   = 3;
 	tconst.n   = 8;
@@ -1267,12 +979,10 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	tt.m = t.m;
 	tt.n = tconst.n;
 	tt.mat = (doublereal*) calloc((tt.m)*(tt.n), sizeof(doublereal));
-	zeros(&tt);
 	mat ttest;
 	ttest.m = tt.m;
 	ttest.n = tt.n + 1;
 	ttest.mat = (doublereal*) calloc((ttest.m)*(ttest.n), sizeof(doublereal));
-	zeros(&ttest);
 	int len;
 	mat xj;
 	xj.n = 1;
@@ -1385,13 +1095,10 @@ void thirdord( doublereal p, doublereal v, doublereal a, doublereal j, doublerea
 	//fflush (pFile);
 	xj.m = len;
 	xj.mat = (doublereal*) calloc((xj.m)*(xj.n), sizeof(doublereal));
-	zeros(&xj);
 	xa.m = len;
 	xa.mat = (doublereal*) calloc((xa.m)*(xa.n), sizeof(doublereal));
-	zeros(&xa);
 	xv.m = len;
 	xv.mat = (doublereal*) calloc((xv.m)*(xv.n), sizeof(doublereal));
-	zeros(&xv);
 	xj.mat[0] = jd;
 	tx->m = len;
 	tx->n = 1;
@@ -1462,7 +1169,6 @@ void interpola ( mat *tr_x, mat *pr_x, mat *my_tr, mat *my_pr )
 	doublereal m;
 	doublereal b;
 
-	zeros(my_pr);
 	tr_mem = 0;
 	for ( int i = 0; i < my_tr->m; i++ )
 	{
