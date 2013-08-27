@@ -13,13 +13,17 @@
 #include <time.h>
 
 #define EXPORTING_DLL
+//#define _LOG
 
 // to avoid C++ incompatibilities
 extern "C" {
 #include "./lapack/f2c.h"
 #include "./lapack/clapack.h"
-#include "./sqlite/sqlite3.h"
 }
+
+#ifdef _LOG
+	FILE * pFile;
+#endif
 
 // Matrix Structure
 typedef struct mat{
@@ -34,8 +38,6 @@ typedef struct mat{
 void multmat( mat *A, mat *B, mat*C );
 // Least Squares Function
 void myls( mat *R, mat *F);
-// SQL Functions
-void readmatsql( sqlite3 *db, char *matname, mat *matrix );
 // Fitting Function
 doublereal sinfit( doublereal u, mat *fit_params );
 // Third Order Setpoint Function (allocates memory for tx and xp)
@@ -139,49 +141,37 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 
 	// % Load Params
 	doublereal dx, dy, vymax, aymax, jymax, vxmax, axmax, jxmax;
-	vymax = param[0];
-	aymax = param[1];
-	jymax = param[2];
-	vxmax = param[3];
-	axmax = param[4];
-	jxmax = param[5];
+	vxmax = param[0];
+	axmax = param[1];
+	jxmax = param[2];
+	vymax = param[3];
+	aymax = param[4];
+	jymax = param[5];
+
+
+	// % Reinit Supervisory
+//	if (param[7] == 1.0)
+//	{
+//		cStatus  = 0;
+//		param[7] = 0.0;
+//	}
 
 	// % If Observer Initialization
 	if (cStatus == 0)
 	{
+		#ifdef _LOG
+			pFile = fopen("logmpc.txt","w") ;
+//			fprintf (pFile, "INIT %d \n",0);
+//			fprintf (pFile, "Parameters read successfully %d \n",1);
+//			fprintf (pFile, "vymax = %3.3f, aymax = %3.3f, jymax = %3.3f, vxmax = %3.3f, axmax = %3.3f, jxmax = %3.3f \n",
+//							 vymax,         aymax,         jymax,         vxmax,         axmax,         jxmax);
+//			fflush (pFile);
+		#endif
 		// % Initlialize Parameters and States
-		sqlite3_initialize();
-		sqlite3 *db;
-		// Open Database
-		int error = sqlite3_open_v2( "test.db", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL );
-		if (error)
-		{
-			sqlite3_close(db);
-			puts("Error opening test.db");
-			system("pause");
-		}
-		readmatsql(db, "Ap", &sysA);
-		readmatsql(db, "Bp", &sysB);
-		readmatsql(db, "Cp", &sysC);
-		readmatsql(db, "Aj", &disA);
-		readmatsql(db, "Bj", &disB);
-		readmatsql(db, "Cj", &disC);
-		readmatsql(db, "Dj", &disD);
-		readmatsql(db, "rollparams", &sRoll);
-		readmatsql(db, "pitchparams", &sPitch);
-
-		readmatsql(db, "Cpos", &sysCpos);
-		readmatsql(db, "phi", &pPhi);
-		readmatsql(db, "jota", &pJota);
-		readmatsql(db, "theta", &pTheta);
-		readmatsql(db, "gama", &pGamma);
-		readmatsql(db, "omega", &pOmega);
-		readmatsql(db, "pssi", &pPsi);
+		#include "matrices.h"
 		iTime = 0.0;
 		res   = 0;
 		lastT = 0.0;
-		// Close Database
-		sqlite3_close(db);
 		// Init Inputs, States, Outputs and wayPoints in Matrix Form
 		ukm1.m    = sysB.n;
 		ukm1.n    = 1;
@@ -285,11 +275,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		F.mat       = (doublereal*) calloc(F.m*F.n, sizeof(doublereal));
 
 		// % Read Meas (Here just in Init, needed to estimate initial states)
+		// X = position[0]
 		m_ym.mat[0] = position[0];
-		m_ym.mat[1] = velocity[0];
+		// VX = velocity[1]
+		m_ym.mat[1] = velocity[1];
+		// Y = position[1]
 		m_ym.mat[2] = position[1];
-		m_ym.mat[3] = velocity[1];
-//		// 0) Input/Output Pointers
+		// VY = velocity[0]
+		m_ym.mat[3] = velocity[0];
+//		#ifdef _LOG
+//			fprintf (pFile, "xpos = %3.3f, xvel = %3.3f, ypos = %3.3f, yvel = %3.3f \n",
+//							 m_ym.mat[0],  m_ym.mat[1],  m_ym.mat[2],  m_ym.mat[3]);
+//			fflush (pFile);
+//		#endif
+//		// TODO: SOlve initial condition problem
 //		zeros(&ukm1);
 //		// Calculate C inverse
 //		pinv(&(sysC.m), &(sysC.n), sysC.mat, &mytol, sysCinv.mat);
@@ -303,23 +302,23 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		// % Reference Design
 		dx = wayPointX[res+1] - wayPointX[res];
 		dy = wayPointY[res+1] - wayPointY[res];
-		if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
+		if ( abs(dx) > abs(0.8*(vxmax/vymax)*dy) )
 		{
-			thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
-			if ( dy < 0 )
+		thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
+		if ( dx < 0 )
+		{
+			for (int i = 0; i < pr_x.m; i++)
 			{
-				for (int i = 0; i < pr_y.m; i++)
-				{
-					pr_y.mat[i] = -pr_y.mat[i];
-				}
+				pr_x.mat[i] = -pr_x.mat[i];
 			}
-			pr_x.m   = pr_y.m;
-			pr_x.n   = pr_y.n;
-			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
-			for (int i = 0; i < pr_y.m; i++)
-			{
-				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
-			}
+		}
+		pr_y.m   = pr_x.m;
+		pr_y.n   = pr_x.n;
+		pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+		for (int i = 0; i < pr_y.m; i++)
+		{
+			pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+		}
 		}
 		else if ( dx == 0.0 && dy == 0.0 )
 		{
@@ -341,20 +340,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 		else
 		{
-			thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
-			if ( dx < 0 )
+			thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+			if ( dy < 0 )
 			{
-				for (int i = 0; i < pr_x.m; i++)
+				for (int i = 0; i < pr_y.m; i++)
 				{
-					pr_x.mat[i] = -pr_x.mat[i];
+					pr_y.mat[i] = -pr_y.mat[i];
 				}
 			}
-			pr_y.m   = pr_x.m;
-			pr_y.n   = pr_x.n;
-			pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+			pr_x.m   = pr_y.m;
+			pr_x.n   = pr_y.n;
+			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
 			for (int i = 0; i < pr_y.m; i++)
 			{
-				pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 			}
 		}
 		for (int i = 0; i < tr.m; i++)
@@ -365,8 +364,8 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 		// % 1) PREDICT
 		// % Scheduled B matrix
-		Sched.mat[0] = sinfit(ukm1.mat[0], &sRoll);
-		Sched.mat[3] = sinfit(ukm1.mat[1], &sPitch);
+		Sched.mat[0] = sinfit(ukm1.mat[0], &sPitch);
+		Sched.mat[3] = sinfit(ukm1.mat[1], &sRoll);
 		multmat(&sysB, &Sched, &Bsch);
 		// % Nominal Model State Equation
 		multmat(&sysA, &x, &stEq1);
@@ -404,6 +403,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 		// % Update Output
 		multmat(&sysC, &x, &m_y);
+//		#ifdef _LOG
+//			fprintf (pFile, "estxpos = %3.3f, estxvel = %3.3f, estypos = %3.3f, estyvel = %3.3f \n",
+//							 m_y.mat[0],  m_y.mat[1],  m_y.mat[2],  m_y.mat[3]);
+//			fflush (pFile);
+//		#endif
 		// % STATE FEEDBACK
 		// % 1) Compute Reference Vector
 		for ( int i = 0; i < N; i++ )
@@ -417,6 +421,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 			ref.mat[2*i]     = rtmpx.mat[i];
 			ref.mat[(2*i)+1] = rtmpy.mat[i];
 		}
+//		#ifdef _LOG
+//			fprintf (pFile, "xref = %3.3f, yref = %3.3f \n",
+//					         rtmpx.mat[0], rtmpy.mat[0]);
+//			fflush (pFile);
+//		#endif
 		// % 2) Compute Unconstrained MPC Input
 		int filas    = Bsch.m;
 		int columnas = Bsch.n;
@@ -503,22 +512,22 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 				// % Reference Design
 				dx = wayPointX[res+1] - wayPointX[res];
 				dy = wayPointY[res+1] - wayPointY[res];
-				if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
+				if ( abs(dx) > abs(0.8*(vxmax/vymax)*dy) )
 				{
-					thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
-					if ( dy < 0 )
+					thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
+					if ( dx < 0 )
 					{
-						for (int i = 0; i < pr_y.m; i++)
+						for (int i = 0; i < pr_x.m; i++)
 						{
-							pr_y.mat[i] = -pr_y.mat[i];
+							pr_x.mat[i] = -pr_x.mat[i];
 						}
 					}
-					pr_x.m   = pr_y.m;
-					pr_x.n   = pr_y.n;
-					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+					pr_y.m   = pr_x.m;
+					pr_y.n   = pr_x.n;
+					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
 					for (int i = 0; i < pr_y.m; i++)
 					{
-						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
+						pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
 					}
 				}
 				else if ( dx == 0.0 && dy == 0.0 )
@@ -541,20 +550,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 				}
 				else
 				{
-					thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
-					if ( dx < 0 )
+					thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+					if ( dy < 0 )
 					{
-						for (int i = 0; i < pr_x.m; i++)
+						for (int i = 0; i < pr_y.m; i++)
 						{
-							pr_x.mat[i] = -pr_x.mat[i];
+							pr_y.mat[i] = -pr_y.mat[i];
 						}
 					}
-					pr_y.m   = pr_x.m;
-					pr_y.n   = pr_x.n;
-					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+					pr_x.m   = pr_y.m;
+					pr_x.n   = pr_y.n;
+					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
 					for (int i = 0; i < pr_y.m; i++)
 					{
-						pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 					}
 				}
 				for (int i = 0; i < tr.m; i++)
@@ -617,14 +626,31 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 
 		// % Read Meas
+		// X = position[0]
 		m_ym.mat[0] = position[0];
-		m_ym.mat[1] = velocity[0];
+		// VX = velocity[1]
+		m_ym.mat[1] = velocity[1];
+		// Y = position[1]
 		m_ym.mat[2] = position[1];
-		m_ym.mat[3] = velocity[1];
+		// VY = velocity[0]
+		m_ym.mat[3] = velocity[0];
+//		#ifdef _LOG
+//			fprintf (pFile, "   xpos = %3.3f, xvel = %3.3f,    ypos = %3.3f,    yvel = %3.3f \n",
+//							 m_ym.mat[0],  m_ym.mat[1],  m_ym.mat[2],  m_ym.mat[3]);
+//			fflush (pFile);
+//		#endif
 		// % 1) PREDICT
 		// % Scheduled B matrix
-		Sched.mat[0] = sinfit(ukm1.mat[0], &sRoll);
-		Sched.mat[3] = sinfit(ukm1.mat[1], &sPitch);
+		Sched.mat[0] = sinfit(ukm1.mat[0], &sPitch);
+		Sched.mat[3] = sinfit(ukm1.mat[1], &sRoll);
+//		if (dabs(ukm1.mat[0]) < 0.05) //truco
+//		{
+//			Sched.mat[0] = 0.5*sinfit(ukm1.mat[0], &sPitch);
+//		}
+//		if (dabs(ukm1.mat[1]) < 0.05)
+//		{
+//			Sched.mat[3] = 0.5*sinfit(ukm1.mat[1], &sRoll);
+//		}
 		multmat(&sysB, &Sched, &Bsch);
 		// % Nominal Model State Equation
 		multmat(&sysA, &x, &stEq1);
@@ -663,6 +689,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 		// % Update Output
 		multmat(&sysC, &x, &m_y);
+//		#ifdef _LOG
+//			fprintf (pFile, "estxpos = %3.3f, estxvel = %3.3f, estypos = %3.3f, estyvel = %3.3f \n",
+//							 m_y.mat[0],  m_y.mat[1],  m_y.mat[2],  m_y.mat[3]);
+//			fflush (pFile);
+//		#endif
 		// % STATE FEEDBACK
 		// % 1) Compute Reference Vector
 		for ( int i = 0; i < N; i++ )
@@ -676,6 +707,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 			ref.mat[2*i]     = rtmpx.mat[i];
 			ref.mat[(2*i)+1] = rtmpy.mat[i];
 		}
+//		#ifdef _LOG
+//			fprintf (pFile, "   xref = %3.3f,                 yref = %3.3f \n",
+//					         rtmpx.mat[0], rtmpy.mat[0]);
+//			fflush (pFile);
+//		#endif
 		// % 2) Compute Unconstrained MPC Input
 		int filas    = Bsch.m;
 		int columnas = Bsch.n;
@@ -749,132 +785,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 			action[i] = 0.0;
 		}
 	}
+//	#ifdef _LOG
+//		fprintf (pFile, "   xdes = %3.3f,                 ydes = %3.3f \n",
+//						 wayPointX[res+1], wayPointY[res+1]);
+//		fprintf (pFile, "pitch(u1) = %3.3f, roll(u2) = %3.3f \n",
+//						 action[0],  action[1]);
+//		fprintf (pFile, "cStatus %d \n",cStatus);
+//		fflush (pFile);
+//	#endif
+		#ifdef _LOG
+			fprintf (pFile, "%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f \n",
+							 action[1],position[0],velocity[1],action[0],position[1],velocity[0],ref.mat[0],ref.mat[1],m_y.mat[0],m_y.mat[1],m_y.mat[2],m_y.mat[3]);
+			fflush (pFile);
+		#endif
 
-}
-
-void readmatsql( sqlite3 *db, char *matname, mat *matrix )
-{
-	// Read Matrix Sizes from 'info' table
-	sqlite3_stmt *res1;
-	char querybegin1[] = "SELECT * FROM info WHERE matname = \"";
-	char *query1;
-	query1 = (char*) malloc(strlen(querybegin1)+strlen(matname)+2);
-	strcpy(query1, querybegin1);
-	strcat(query1, matname);
-	strcat(query1, "\"");
-	int error = sqlite3_prepare_v2(db,query1,-1,&res1,NULL);
-	if (error != SQLITE_OK)
-	{
-		sqlite3_close(db);
-		puts("query 1 prepare error");
-		puts(query1);
-		system("pause");
-	}
-	sqlite3_step(res1);
-	matrix->m = sqlite3_column_int(res1,1);
-	matrix->n = sqlite3_column_int(res1,2);
-	sqlite3_finalize(res1);
-	// Allocate Matrix Memory
-	matrix->mat = (doublereal*) calloc(matrix->m*matrix->n, sizeof(doublereal));
-	// Read Matrix Values
-	sqlite3_stmt *res2;
-	char querybegin2[] = "SELECT * FROM \"";
-	char *query2;
-	query2 = (char*) malloc(strlen(querybegin2)+strlen(matname)+2);
-	strcpy(query2, querybegin2);
-	strcat(query2, matname);
-	strcat(query2, "\"");
-	error = sqlite3_prepare_v2(db,query2,-1,&res2,NULL);
-	if (error != SQLITE_OK)
-	{
-		sqlite3_close(db);
-		puts("query 2 prepare error");
-		puts(query2);
-		system("pause");
-	}
-	int i = 0;
-	while (sqlite3_step(res2) == SQLITE_ROW)
-	{
-		for(int j = 0; j < matrix->n; j++)
-		{
-			matrix->mat[j*(matrix->m)+i] = sqlite3_column_double(res2,j);
-		}
-		i = i + 1;
-	}
-	sqlite3_finalize(res2);
-
-	// TODO: free query1 and query2 ?
-
-}
-
-void monpennew(integer *m, integer *n, doublereal *a, doublereal *mytol, doublereal *ainvt,
-		doublereal *work, doublereal *s, doublereal *u, doublereal *vt, doublereal *sfull, doublereal *usfull)
-{
-	// init tolerance
-    doublereal tol = 0.0;
-    // define tolerance
-//    if (*mytol <= 0)
-//    {
-//		// tolerance
-//		tol = (*m) * machEps;
-//    }
-//    else
-//    {
-    	tol = *mytol;
-//    }
-    // allocate work matrix
-    integer lwork = 5*(*m)*(*n);
-//    doublereal *work = (doublereal*) calloc(5*(*m)*(*n), sizeof(doublereal));
-    // allocate s matrix
-//    doublereal *s = (doublereal*) calloc(*n, sizeof(doublereal)); // *m > *n for sure
-    // allocate u matrix
-//    doublereal *u = (doublereal*) calloc((*m)*(*m), sizeof(doublereal));
-    // allocate vt matrix
-//    doublereal *vt = (doublereal*) calloc((*n)*(*n), sizeof(doublereal));
-    // dgesvd function output
-    integer info  = 0.0;
-    // singular value decomposition
-    char jobu      = 'A';
-    char jobvt     = 'A';
-    dgesvd_(&jobu, &jobvt, m, n, a,
-		    m, s, u, m, vt, n,
-		    work, &lwork, &info);
-    // allocate sfull matrix
-//    doublereal *sfull = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
-    // fill sfull with zeros
-    for (int i = 0; i < (*m)*(*n); i++)
-    {
-    	sfull[i] = 0.0;
-    }
-    // fill diagonal of sfull with inverse of singular values
-    for (int i = 0; i < *n; i++)
-    {
-		if (s[i] > tol)
-		{
-			sfull[i+i*(*m)] = 1.0/(s[i]);
-		}
-    }
-    // allocate usfull matrix
-//    doublereal *usfull = (doublereal*) calloc((*m)*(*n), sizeof(doublereal));
-    // multiply u*sfull
-    char transa      = 'N';
-	char transb      = 'N';
-	doublereal alpha = 1.0;
-	doublereal beta  = 0.0;
-	dgemm_(&transa, &transb,
-	       m, n, m, &alpha, u, m,
-		   sfull, m, &beta, usfull, m);
-	// multiply usfull*vt
-	dgemm_(&transa, &transb,
-		   m, n, n, &alpha, usfull, m,
-		   vt, n, &beta, ainvt, m);
-
-//	free (work);
-//    free (s);
-//    free (u);
-//    free (vt);
-//    free (sfull);
-//    free (usfull);
 }
 
 void multmat( mat *A, mat *B, mat *C )

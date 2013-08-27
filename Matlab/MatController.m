@@ -109,12 +109,12 @@ if isempty(N)
 end
 
 % Load Params
-vymax    = param(1);                     % max 2.1 [m/s] ~1.5 (dont move)
-aymax    = param(2);                    % ~0.55 (dont move)
-jymax    = param(3);                       % ~6 (dont move)
-vxmax    = param(4);                     % max 3.5 [m/s] ~3.1
-axmax    = param(5);                       % ~1 (dont move)
-jxmax    = param(6);                      % ~12 (dont move)
+vxmax    = param(1);                     % max 3.5 [m/s] ~3.1
+axmax    = param(2);                       % ~1 (dont move)
+jxmax    = param(3);                      % ~12 (dont move)
+vymax    = param(4);                     % max 2.1 [m/s] ~1.5 (dont move)
+aymax    = param(5);                    % ~0.55 (dont move)
+jymax    = param(6);                       % ~6 (dont move)
 
 % Read Meas
 ym(1,1) = position(1);
@@ -154,31 +154,50 @@ if cStatus == 0
     % Reference Design
     dx       = wayPointX(res+2)-wayPointX(res+1);% In C it should be +1 and +0
     dy       = wayPointY(res+2)-wayPointY(res+1);% In C it should be +1 and +0
-    if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
-        [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
-        if dy < 0
-            pr_y = -pr_y;
-        end
-        pr_x = (dx/dy)*pr_y;
-    elseif dx == 0 && dy == 0
-            tr  = [0,Ts];
-            pr_x = [0,0];
-            pr_y = pr_x;
-    else
+%     if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
+%         [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
+%         if dy < 0
+%             pr_y = -pr_y;
+%         end
+%         pr_x = (dx/dy)*pr_y;
+%     elseif dx == 0 && dy == 0
+%             tr  = [0,Ts];
+%             pr_x = [0,0];
+%             pr_y = pr_x;
+%     else
+%         [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
+%         if dx < 0
+%             pr_x = -pr_x;
+%         end
+%         pr_y = (dy/dx)*pr_x;
+%     end
+    if abs(dx) > abs(0.8*(vxmax/vymax)*dy)
         [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
         if dx < 0
             pr_x = -pr_x;
         end
         pr_y = (dy/dx)*pr_x;
+    elseif dx == 0 && dy == 0
+            tr  = [0,Ts];
+            pr_x = [0,0];
+            pr_y = pr_x;
+    else
+
+        [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
+        if dy < 0
+            pr_y = -pr_y;
+        end
+        pr_x = (dx/dy)*pr_y;
     end
+    
     tr   = lastT + tr;
     pr_x = wayPointX(res+1) + pr_x;
     pr_y = wayPointY(res+1) + pr_y;
     
     % OBSERVER
     % 1) PREDICT
-    unew1 = sinfit(ukm1(1),sRoll);
-    unew2 = sinfit(ukm1(2),sPitch);
+    unew1 = sinfit(ukm1(1),sPitch);
+    unew2 = sinfit(ukm1(2),sRoll);
     % Scheduled B matrix
     Bsch     = sysB*[unew1 , 0; ...
                      0, unew2];    
@@ -247,22 +266,40 @@ elseif cStatus == 1
             % Reference Design
             dx       = wayPointX(res+2)-wayPointX(res+1);
             dy       = wayPointY(res+2)-wayPointY(res+1);
-            if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
-                [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
-                if dy < 0
-                    pr_y = -pr_y;
-                end
-                pr_x = (dx/dy)*pr_y;
-            elseif dx == 0 && dy == 0
-                    tr  = [0,Ts];
-                    pr_x = [0,0];
-                    pr_y = pr_x;
-            else
+%             if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
+%                 [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
+%                 if dy < 0
+%                     pr_y = -pr_y;
+%                 end
+%                 pr_x = (dx/dy)*pr_y;
+%             elseif dx == 0 && dy == 0
+%                     tr  = [0,Ts];
+%                     pr_x = [0,0];
+%                     pr_y = pr_x;
+%             else
+%                 [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
+%                 if dx < 0
+%                     pr_x = -pr_x;
+%                 end
+%                 pr_y = (dy/dx)*pr_x;
+%             end
+            if abs(dx) > abs(0.8*(vxmax/vymax)*dy)
                 [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
                 if dx < 0
                     pr_x = -pr_x;
                 end
                 pr_y = (dy/dx)*pr_x;
+            elseif dx == 0 && dy == 0
+                    tr  = [0,Ts];
+                    pr_x = [0,0];
+                    pr_y = pr_x;
+            else
+                
+                [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
+                if dy < 0
+                    pr_y = -pr_y;
+                end
+                pr_x = (dx/dy)*pr_y;
             end
             tr   = lastT + tr;
             pr_x = wayPointX(res+1) + pr_x;
@@ -276,8 +313,8 @@ elseif cStatus == 1
     end
     % OBSERVER
     % 1) PREDICT
-    unew1 = sinfit(ukm1(1),sRoll);
-    unew2 = sinfit(ukm1(2),sPitch);
+    unew1 = sinfit(ukm1(1),sPitch);
+    unew2 = sinfit(ukm1(2),sRoll);
     % Scheduled B matrix
     Bsch     = sysB*[unew1 , 0; ...
                      0, unew2];    
