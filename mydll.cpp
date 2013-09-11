@@ -49,12 +49,14 @@ void interpola ( mat *tr_x, mat *pr_x, mat *my_tr, mat *my_pr );
 
 doublereal Ts = 0.06;
 int N  = 50;
-doublereal radio = 0.05;
+doublereal radio = 0.1; // New Radius
 
 extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *velocity, double *action, int numAxis, double *wayPointX, double *wayPointY, int numWaypoints, double *actualWayPoint, double *param, int numParam)
 {
 	// % Controller Status Variable (Init = 0, Run = 1)
 	static int cStatus = 0;
+	// % Supervisor Status Variable
+	static int sStatus = 0;
 	// % Old Control Input
 	static mat ukm1;
 	// % Internal System Model State
@@ -278,11 +280,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		// X = position[0]
 		m_ym.mat[0] = position[0];
 		// VX = velocity[1]
-		m_ym.mat[1] = velocity[1];
+		m_ym.mat[1] = velocity[0];
 		// Y = position[1]
 		m_ym.mat[2] = position[1];
 		// VY = velocity[0]
-		m_ym.mat[3] = velocity[0];
+		m_ym.mat[3] = velocity[1];
 //		#ifdef _LOG
 //			fprintf (pFile, "xpos = %3.3f, xvel = %3.3f, ypos = %3.3f, yvel = %3.3f \n",
 //							 m_ym.mat[0],  m_ym.mat[1],  m_ym.mat[2],  m_ym.mat[3]);
@@ -302,23 +304,23 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		// % Reference Design
 		dx = wayPointX[res+1] - wayPointX[res];
 		dy = wayPointY[res+1] - wayPointY[res];
-		if ( abs(dx) > abs(0.8*(vxmax/vymax)*dy) )
+		if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
 		{
-		thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
-		if ( dx < 0 )
-		{
-			for (int i = 0; i < pr_x.m; i++)
+			thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+			if ( dy < 0 )
 			{
-				pr_x.mat[i] = -pr_x.mat[i];
+				for (int i = 0; i < pr_y.m; i++)
+				{
+					pr_y.mat[i] = -pr_y.mat[i];
+				}
 			}
-		}
-		pr_y.m   = pr_x.m;
-		pr_y.n   = pr_x.n;
-		pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
-		for (int i = 0; i < pr_y.m; i++)
-		{
-			pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
-		}
+			pr_x.m   = pr_y.m;
+			pr_x.n   = pr_y.n;
+			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+			for (int i = 0; i < pr_y.m; i++)
+			{
+				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
+			}
 		}
 		else if ( dx == 0.0 && dy == 0.0 )
 		{
@@ -340,20 +342,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		}
 		else
 		{
-			thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
-			if ( dy < 0 )
+			thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
+			if ( dx < 0 )
 			{
-				for (int i = 0; i < pr_y.m; i++)
+				for (int i = 0; i < pr_x.m; i++)
 				{
-					pr_y.mat[i] = -pr_y.mat[i];
+					pr_x.mat[i] = -pr_x.mat[i];
 				}
 			}
-			pr_x.m   = pr_y.m;
-			pr_x.n   = pr_y.n;
-			pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+			pr_y.m   = pr_x.m;
+			pr_y.n   = pr_x.n;
+			pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
 			for (int i = 0; i < pr_y.m; i++)
 			{
-				pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
+				pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
 			}
 		}
 		for (int i = 0; i < tr.m; i++)
@@ -500,6 +502,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		// Check weather next point has been reached
 		if ( sqrt( pow((position[0]-wayPointX[res+1]), 2.0) + pow((position[1]-wayPointY[res+1]), 2.0) ) < radio )
 		{
+			sStatus = 1;
+		}
+		if (sStatus == 1 && iTime >= tr.mat[(int)ceil(0.75*(max(tr.m,tr.n)-1))])
+		{
+			sStatus = 0;
 			if ( (res+2) < numWaypoints ) // red+2 still because later res++ and access res+1
 			{
 				// Free previous reference
@@ -512,22 +519,22 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 				// % Reference Design
 				dx = wayPointX[res+1] - wayPointX[res];
 				dy = wayPointY[res+1] - wayPointY[res];
-				if ( abs(dx) > abs(0.8*(vxmax/vymax)*dy) )
+				if ( abs(dy) > abs(0.8*(vymax/vxmax)*dx) )
 				{
-					thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
-					if ( dx < 0 )
+					thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
+					if ( dy < 0 )
 					{
-						for (int i = 0; i < pr_x.m; i++)
+						for (int i = 0; i < pr_y.m; i++)
 						{
-							pr_x.mat[i] = -pr_x.mat[i];
+							pr_y.mat[i] = -pr_y.mat[i];
 						}
 					}
-					pr_y.m   = pr_x.m;
-					pr_y.n   = pr_x.n;
-					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
+					pr_x.m   = pr_y.m;
+					pr_x.n   = pr_y.n;
+					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
 					for (int i = 0; i < pr_y.m; i++)
 					{
-						pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
+						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
 					}
 				}
 				else if ( dx == 0.0 && dy == 0.0 )
@@ -550,20 +557,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 				}
 				else
 				{
-					thirdord( dy, vymax, aymax, jymax, Ts, &tr, &pr_y );
-					if ( dy < 0 )
+					thirdord( dx, vxmax, axmax, jxmax, Ts, &tr, &pr_x );
+					if ( dx < 0 )
 					{
-						for (int i = 0; i < pr_y.m; i++)
+						for (int i = 0; i < pr_x.m; i++)
 						{
-							pr_y.mat[i] = -pr_y.mat[i];
+							pr_x.mat[i] = -pr_x.mat[i];
 						}
 					}
-					pr_x.m   = pr_y.m;
-					pr_x.n   = pr_y.n;
-					pr_x.mat = (doublereal*) calloc((pr_x.m)*(pr_x.n), sizeof(doublereal));
+					pr_y.m   = pr_x.m;
+					pr_y.n   = pr_x.n;
+					pr_y.mat = (doublereal*) calloc((pr_y.m)*(pr_y.n), sizeof(doublereal));
 					for (int i = 0; i < pr_y.m; i++)
 					{
-						pr_x.mat[i] = (dx/dy)*pr_y.mat[i];
+						pr_y.mat[i] = (dy/dx)*pr_x.mat[i];
 					}
 				}
 				for (int i = 0; i < tr.m; i++)
@@ -629,28 +636,20 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 		// X = position[0]
 		m_ym.mat[0] = position[0];
 		// VX = velocity[1]
-		m_ym.mat[1] = velocity[1];
+		m_ym.mat[1] = velocity[0];
 		// Y = position[1]
 		m_ym.mat[2] = position[1];
 		// VY = velocity[0]
-		m_ym.mat[3] = velocity[0];
+		m_ym.mat[3] = velocity[1];
 //		#ifdef _LOG
 //			fprintf (pFile, "   xpos = %3.3f, xvel = %3.3f,    ypos = %3.3f,    yvel = %3.3f \n",
 //							 m_ym.mat[0],  m_ym.mat[1],  m_ym.mat[2],  m_ym.mat[3]);
 //			fflush (pFile);
 //		#endif
 		// % 1) PREDICT
-		// % Scheduled B matrix
-		Sched.mat[0] = sinfit(ukm1.mat[0], &sPitch);
-		Sched.mat[3] = sinfit(ukm1.mat[1], &sRoll);
-//		if (dabs(ukm1.mat[0]) < 0.05) //truco
-//		{
-//			Sched.mat[0] = 0.5*sinfit(ukm1.mat[0], &sPitch);
-//		}
-//		if (dabs(ukm1.mat[1]) < 0.05)
-//		{
-//			Sched.mat[3] = 0.5*sinfit(ukm1.mat[1], &sRoll);
-//		}
+		// % Scheduled B matrix (0.75*)
+		Sched.mat[0] = 1.0*sinfit(ukm1.mat[0], &sPitch);
+		Sched.mat[3] = 1.0*sinfit(ukm1.mat[1], &sRoll);
 		multmat(&sysB, &Sched, &Bsch);
 		// % Nominal Model State Equation
 		multmat(&sysA, &x, &stEq1);
@@ -764,6 +763,11 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 			du.mat[i] = F.mat[i];
 			ukm1.mat[i] = ukm1.mat[i] - du.mat[i];
 		}
+//		// TEST
+//		if (dabs(ukm1.mat[0]) < 0.05 && dabs(ukm1.mat[0]) > 0.02)
+//		{
+//			ukm1.mat[0] = 3.0*ukm1.mat[0];
+//		}
 		// 3) Limit the Inputs
 		ukm1.mat[0] = min(ukm1.mat[0],1.0);
 		ukm1.mat[0] = max(ukm1.mat[0],-1.0);
@@ -795,9 +799,12 @@ extern "C" void __declspec(dllexport) __cdecl Control(double *position, double *
 //	#endif
 		#ifdef _LOG
 			fprintf (pFile, "%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f\t%3.3f \n",
-							 action[1],position[0],velocity[1],action[0],position[1],velocity[0],ref.mat[0],ref.mat[1],m_y.mat[0],m_y.mat[1],m_y.mat[2],m_y.mat[3]);
+							 action[1],position[0],velocity[0],action[0],position[1],velocity[1],ref.mat[0],ref.mat[1],m_y.mat[0],m_y.mat[1],m_y.mat[2],m_y.mat[3]);
 			fflush (pFile);
 		#endif
+		actualWayPoint[0] = wayPointX[res+1];
+		actualWayPoint[1] = wayPointY[res+1];
+		actualWayPoint[2] = res+1;
 
 }
 

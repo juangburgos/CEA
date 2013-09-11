@@ -42,10 +42,17 @@ persistent cStatus;
 if isempty(cStatus)
     cStatus = 0;
 end
+% Supervisor Status Variable
+persistent sStatus;
+if isempty(sStatus)
+    sStatus = 0;
+end
 % Old Control Input
 persistent ukm1;
 % Internal System Model State
 persistent x;
+% Internal System Model Output
+persistent y;
 % Internal System Model A Matrix
 persistent sysA;
 % Internal System Model B Matrix
@@ -100,7 +107,7 @@ end
 % Radio
 persistent radio;
 if isempty(radio)
-    radio = 0.05;
+    radio = 0.1; % nuevo radio
 end
 % Prediction Horizon
 persistent N;
@@ -154,40 +161,22 @@ if cStatus == 0
     % Reference Design
     dx       = wayPointX(res+2)-wayPointX(res+1);% In C it should be +1 and +0
     dy       = wayPointY(res+2)-wayPointY(res+1);% In C it should be +1 and +0
-%     if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
-%         [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
-%         if dy < 0
-%             pr_y = -pr_y;
-%         end
-%         pr_x = (dx/dy)*pr_y;
-%     elseif dx == 0 && dy == 0
-%             tr  = [0,Ts];
-%             pr_x = [0,0];
-%             pr_y = pr_x;
-%     else
-%         [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
-%         if dx < 0
-%             pr_x = -pr_x;
-%         end
-%         pr_y = (dy/dx)*pr_x;
-%     end
-    if abs(dx) > abs(0.8*(vxmax/vymax)*dy)
-        [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
-        if dx < 0
-            pr_x = -pr_x;
-        end
-        pr_y = (dy/dx)*pr_x;
-    elseif dx == 0 && dy == 0
-            tr  = [0,Ts];
-            pr_x = [0,0];
-            pr_y = pr_x;
-    else
-
+    if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
         [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
         if dy < 0
             pr_y = -pr_y;
         end
         pr_x = (dx/dy)*pr_y;
+    elseif dx == 0 && dy == 0
+            tr  = [0,Ts];
+            pr_x = [0,0];
+            pr_y = pr_x;
+    else
+        [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
+        if dx < 0
+            pr_x = -pr_x;
+        end
+        pr_y = (dy/dx)*pr_x;
     end
     
     tr   = lastT + tr;
@@ -259,6 +248,10 @@ elseif cStatus == 1
     % SUPERVISORY CONTROL
     % Check weather next point has been reached
     if sqrt( (ym(1)-wayPointX(res+2))^2 + (ym(3)-wayPointY(res+2))^2 ) < radio
+       sStatus = 1; 
+    end
+    if sStatus == 1 && iTime >= tr(ceil(0.85*length(tr)))
+        sStatus = 0;
         if res+2 < numWaypoints
             % Update Reference State and Last Time
             res      = res+1;
@@ -266,40 +259,22 @@ elseif cStatus == 1
             % Reference Design
             dx       = wayPointX(res+2)-wayPointX(res+1);
             dy       = wayPointY(res+2)-wayPointY(res+1);
-%             if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
-%                 [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
-%                 if dy < 0
-%                     pr_y = -pr_y;
-%                 end
-%                 pr_x = (dx/dy)*pr_y;
-%             elseif dx == 0 && dy == 0
-%                     tr  = [0,Ts];
-%                     pr_x = [0,0];
-%                     pr_y = pr_x;
-%             else
-%                 [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
-%                 if dx < 0
-%                     pr_x = -pr_x;
-%                 end
-%                 pr_y = (dy/dx)*pr_x;
-%             end
-            if abs(dx) > abs(0.8*(vxmax/vymax)*dy)
-                [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
-                if dx < 0
-                    pr_x = -pr_x;
-                end
-                pr_y = (dy/dx)*pr_x;
-            elseif dx == 0 && dy == 0
-                    tr  = [0,Ts];
-                    pr_x = [0,0];
-                    pr_y = pr_x;
-            else
-                
+            if abs(dy) > abs(0.8*(vymax/vxmax)*dx)
                 [tr,pr_y] = thirdord(dy,vymax,aymax,jymax,Ts);
                 if dy < 0
                     pr_y = -pr_y;
                 end
                 pr_x = (dx/dy)*pr_y;
+            elseif dx == 0 && dy == 0
+                    tr  = [0,Ts];
+                    pr_x = [0,0];
+                    pr_y = pr_x;
+            else
+                [tr,pr_x] = thirdord(dx,vxmax,axmax,jxmax,Ts);
+                if dx < 0
+                    pr_x = -pr_x;
+                end
+                pr_y = (dy/dx)*pr_x;
             end
             tr   = lastT + tr;
             pr_x = wayPointX(res+1) + pr_x;
